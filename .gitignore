@@ -1,0 +1,27 @@
+# Runtime workspace — never commit
+odoo-workspace/
+
+# Environment files
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Editor
+.idea/
+.vscode/
+*.swp
