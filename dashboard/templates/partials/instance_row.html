@@ -28,31 +28,13 @@
     {% endif %}
   </td>
   <td class="actions">
-    <div class="split-btn">
-      {# Primary action: Open Odoo (only when running) #}
-      {% if inst.running %}
-        {% set odoo_url = inst.url if inst.url else "http://localhost:" ~ inst.port %}
-        <a class="split-btn-main btn-success" href="{{ odoo_url }}" target="_blank">Open Odoo</a>
-      {% elif inst.instance_type == "local" and not inst.version_ready %}
-        <span class="split-btn-main btn-secondary btn-disabled">Cloning…</span>
-      {% elif inst.instance_type == "local" and not inst.env_ready %}
-        <span class="split-btn-main btn-secondary btn-disabled">Env setup…</span>
-      {% else %}
-        <button
-          class="split-btn-main btn-success"
-          hx-post="/instances/{{ inst.id }}/start"
-          hx-target="#row-{{ inst.id }}"
-          hx-swap="outerHTML"
-          hx-on::before-request="this.textContent='Starting…';this.disabled=true"
-        >Start</button>
-      {% endif %}
-
-      {# Dropdown caret #}
-      <div class="split-btn-dropdown">
-        <button class="split-btn-caret btn-success" onclick="toggleDropdown(this)" type="button">▾</button>
-        <ul class="dropdown-menu">
-          {% if inst.running %}
-            {% set odoo_url = inst.url if inst.url else "http://localhost:" ~ inst.port %}
+    {% if inst.running %}
+      {% set odoo_url = inst.url if inst.url else "http://localhost:" ~ inst.port %}
+      <div class="split-btn state-open">
+        <a class="split-btn-main" href="{{ odoo_url }}" target="_blank">Open Odoo ↗</a>
+        <div class="split-btn-dropdown">
+          <button class="split-btn-caret" onclick="toggleDropdown(this)" type="button">▾</button>
+          <ul class="dropdown-menu">
             <li><a href="{{ odoo_url }}" target="_blank">Open Odoo ↗</a></li>
             {% if "stop" in inst.capabilities %}
               <li>
@@ -63,31 +45,77 @@
                 >Stop</button>
               </li>
             {% endif %}
-          {% else %}
-            {% if "start" in inst.capabilities and inst.get("version_ready", True) and inst.get("env_ready", True) %}
+            <li><a href="/instance/{{ inst.id }}">Details</a></li>
+            <li class="dropdown-divider"></li>
+            <li>
+              <button
+                class="text-danger"
+                hx-delete="/instances/{{ inst.id }}"
+                hx-target="#instance-list"
+                hx-swap="innerHTML"
+                hx-confirm="Delete instance {{ inst.id }}?"
+              >Delete</button>
+            </li>
+          </ul>
+        </div>
+      </div>
+    {% elif inst.instance_type == "local" and (not inst.version_ready or not inst.env_ready) %}
+      <div class="split-btn state-waiting">
+        <span class="split-btn-main">
+          {% if not inst.version_ready %}Cloning…{% else %}Env setup…{% endif %}
+        </span>
+        <div class="split-btn-dropdown">
+          <button class="split-btn-caret" onclick="toggleDropdown(this)" type="button">▾</button>
+          <ul class="dropdown-menu">
+            <li><a href="/instance/{{ inst.id }}">Details</a></li>
+            <li class="dropdown-divider"></li>
+            <li>
+              <button
+                class="text-danger"
+                hx-delete="/instances/{{ inst.id }}"
+                hx-target="#instance-list"
+                hx-swap="innerHTML"
+                hx-confirm="Delete instance {{ inst.id }}?"
+              >Delete</button>
+            </li>
+          </ul>
+        </div>
+      </div>
+    {% else %}
+      <div class="split-btn state-start">
+        <button
+          class="split-btn-main"
+          hx-post="/instances/{{ inst.id }}/start"
+          hx-target="#row-{{ inst.id }}"
+          hx-swap="outerHTML"
+          hx-on::before-request="this.textContent='Starting…';this.disabled=true"
+        >Start</button>
+        <div class="split-btn-dropdown">
+          <button class="split-btn-caret" onclick="toggleDropdown(this)" type="button">▾</button>
+          <ul class="dropdown-menu">
+            {% if "start" in inst.capabilities %}
               <li>
                 <button
                   hx-post="/instances/{{ inst.id }}/start"
                   hx-target="#row-{{ inst.id }}"
                   hx-swap="outerHTML"
-                  hx-on::before-request="this.closest('tr').querySelector('.split-btn-main').textContent='Starting…'"
                 >Start</button>
               </li>
             {% endif %}
-          {% endif %}
-          <li><a href="/instance/{{ inst.id }}">Details</a></li>
-          <li class="dropdown-divider"></li>
-          <li>
-            <button
-              class="text-danger"
-              hx-delete="/instances/{{ inst.id }}"
-              hx-target="#instance-list"
-              hx-swap="innerHTML"
-              hx-confirm="Delete instance {{ inst.id }}?"
-            >Delete</button>
-          </li>
-        </ul>
+            <li><a href="/instance/{{ inst.id }}">Details</a></li>
+            <li class="dropdown-divider"></li>
+            <li>
+              <button
+                class="text-danger"
+                hx-delete="/instances/{{ inst.id }}"
+                hx-target="#instance-list"
+                hx-swap="innerHTML"
+                hx-confirm="Delete instance {{ inst.id }}?"
+              >Delete</button>
+            </li>
+          </ul>
+        </div>
       </div>
-    </div>
+    {% endif %}
   </td>
 </tr>
