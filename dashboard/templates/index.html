@@ -118,9 +118,10 @@
 
     <label>
       Odoo backup .zip
-      <input type="file" name="zip_upload" accept=".zip" required />
+      <input type="file" name="zip_upload" accept=".zip" required onchange="autoDetectVersion(this)" />
     </label>
     <p class="field-hint">Expects standard Odoo backup format: <code>dump.sql</code> + <code>filestore/</code>.</p>
+    <p id="detect-version-hint" class="field-hint" style="display:none"></p>
 
     <div class="dialog-actions">
       <button type="button" onclick="document.getElementById('import-zip-dialog').close()">Cancel</button>
@@ -163,5 +164,158 @@ function toggleBaseFields() {
     });
   }
 })();
+
+// ── Auto-detect Odoo version from uploaded zip ───────────────────────────────
+async function autoDetectVersion(input) {
+  const hint = document.getElementById('detect-version-hint');
+  const sel = document.getElementById('import-version-select');
+  if (!input.files[0]) return;
+  hint.style.display = 'block';
+  hint.textContent = 'Detecting version…';
+  const form = new FormData();
+  form.append('zip_file', input.files[0]);
+  try {
+    const resp = await fetch('/api/detect-version', { method: 'POST', body: form });
+    const data = await resp.json();
+    if (data.version) {
+      for (const opt of sel.options) {
+        if (opt.value === data.version) { opt.selected = true; break; }
+      }
+      hint.textContent = `✓ Detected version: ${data.version}`;
+      hint.style.color = 'var(--success, green)';
+    } else {
+      hint.textContent = 'Version not detected — please select manually.';
+      hint.style.color = '';
+    }
+  } catch {
+    hint.textContent = 'Detection failed — select version manually.';
+    hint.style.color = '';
+  }
+}
+
+// ── Connect as / Change password ─────────────────────────────────────────────
+let _activeInstance = null;
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function openConnectAs(instanceId) {
+  _activeInstance = instanceId;
+  document.getElementById('connect-as-title').textContent = `Connect as — ${instanceId}`;
+  const body = document.getElementById('connect-as-body');
+  body.innerHTML = '<p>Loading users…</p>';
+  document.getElementById('connect-as-dialog').showModal();
+  fetch(`/instances/${instanceId}/users`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.users || !data.users.length) {
+        body.innerHTML = '<p>No internal users found.</p>';
+        return;
+      }
+      body.innerHTML = data.users.map(u => `
+        <div class="user-list-item">
+          <div>
+            <div class="user-name">${escHtml(u.name)}</div>
+            <div class="user-login">${escHtml(u.login)}</div>
+          </div>
+          <a class="btn-sm btn-primary"
+             href="/instances/${escHtml(instanceId)}/open-as/${u.id}"
+             target="_blank"
+             onclick="document.getElementById('connect-as-dialog').close()">
+            Connect ↗
+          </a>
+        </div>`).join('');
+    })
+    .catch(() => {
+      body.innerHTML = '<p class="text-danger">Failed to load users — is the instance running and API key configured?</p>';
+    });
+}
+
+function openChangePassword(instanceId) {
+  _activeInstance = instanceId;
+  const sel = document.getElementById('cp-user-select');
+  const msg = document.getElementById('cp-message');
+  sel.innerHTML = '<option>Loading…</option>';
+  msg.textContent = '';
+  msg.style.color = '';
+  document.getElementById('cp-password').value = '';
+  document.getElementById('change-password-dialog').showModal();
+  fetch(`/instances/${instanceId}/users`)
+    .then(r => r.json())
+    .then(data => {
+      sel.innerHTML = data.users.map(u =>
+        `<option value="${u.id}">${escHtml(u.name)} (${escHtml(u.login)})</option>`
+      ).join('');
+    })
+    .catch(() => { sel.innerHTML = '<option>Failed to load</option>'; });
+}
+
+async function doChangePassword(e) {
+  e.preventDefault();
+  const userId = document.getElementById('cp-user-select').value;
+  const password = document.getElementById('cp-password').value;
+  const msg = document.getElementById('cp-message');
+  const form = new FormData();
+  form.append('user_id', userId);
+  form.append('password', password);
+  try {
+    const resp = await fetch(`/instances/${_activeInstance}/change-password`, { method: 'POST', body: form });
+    if (resp.ok) {
+      msg.textContent = '✓ Password updated.';
+      msg.style.color = 'var(--success, green)';
+    } else {
+      const err = await resp.json().catch(() => ({}));
+      msg.textContent = err.detail || 'Failed.';
+      msg.style.color = 'var(--danger)';
+    }
+  } catch {
+    msg.textContent = 'Request failed.';
+    msg.style.color = 'var(--danger)';
+  }
+}
+
+function toggleCpPassword(btn) {
+  const input = btn.previousElementSibling;
+  const hidden = input.type === 'password';
+  input.type = hidden ? 'text' : 'password';
+  btn.textContent = hidden ? 'Hide' : 'Show';
+}
 </script>
+
+<!-- Connect as dialog -->
+<dialog id="connect-as-dialog">
+  <h2 id="connect-as-title">Connect as</h2>
+  <p class="field-hint">Clicking Connect sets the user's password to <code>demo</code> and opens Odoo in a new tab.</p>
+  <div id="connect-as-body" class="user-list"></div>
+  <div class="dialog-actions">
+    <button type="button" onclick="document.getElementById('connect-as-dialog').close()">Close</button>
+  </div>
+</dialog>
+
+<!-- Change password dialog -->
+<dialog id="change-password-dialog">
+  <h2>Change password</h2>
+  <form onsubmit="doChangePassword(event)">
+    <label>
+      User
+      <select id="cp-user-select" required></select>
+    </label>
+    <label>
+      New password
+      <div class="secret-field">
+        <input type="password" id="cp-password" required />
+        <button type="button" class="btn-sm btn-secondary" onclick="toggleCpPassword(this)">Show</button>
+      </div>
+    </label>
+    <p id="cp-message" class="field-hint"></p>
+    <div class="dialog-actions">
+      <button type="button" onclick="document.getElementById('change-password-dialog').close()">Cancel</button>
+      <button type="submit" class="btn-primary">Save password</button>
+    </div>
+  </form>
+</dialog>
+
 {% endblock %}

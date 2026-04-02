@@ -190,6 +190,20 @@ dialog {
   margin: 0;
 }
 dialog h2 { margin-bottom: 1.5rem; }
+
+/* User list (connect-as dialog) */
+.user-list { display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; margin: .5rem 0; }
+.user-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: .6rem 0;
+  border-bottom: 1px solid var(--border);
+  gap: 1rem;
+}
+.user-list-item:last-child { border-bottom: none; }
+.user-name { font-weight: 500; font-size: .875rem; }
+.user-login { font-size: .75rem; color: var(--text-muted); margin-top: .15rem; }
 dialog::backdrop { background: rgba(0,0,0,.4); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1.5rem; }
 

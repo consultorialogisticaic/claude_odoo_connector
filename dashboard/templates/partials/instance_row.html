@@ -36,6 +36,10 @@
           <button class="split-btn-caret" onclick="toggleDropdown(this)" type="button">▾</button>
           <ul class="dropdown-menu">
             <li><a href="{{ odoo_url }}" target="_blank">Open Odoo ↗</a></li>
+            {% if inst.instance_type == "local" %}
+            <li><button onclick="openConnectAs('{{ inst.id }}')">Connect as…</button></li>
+            <li><button onclick="openChangePassword('{{ inst.id }}')">Change password…</button></li>
+            {% endif %}
             {% if "stop" in inst.capabilities %}
               <li>
                 <button

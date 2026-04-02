@@ -1447,6 +1447,182 @@ async def restore_zip(
 
 
 # ---------------------------------------------------------------------------
+# Routes — user management (connect-as / change-password)
+# ---------------------------------------------------------------------------
+
+import html as _html
+
+
+def _rpc_execute(inst: dict, model: str, method: str, args: list, kw: dict | None = None):
+    """Call Odoo XML-RPC using the instance API key."""
+    env_path = WORKSPACE_ROOT / inst["path"] / ".env"
+    env_data = _parse_env_file(env_path)
+    api_key = env_data.get("ODOO_API_KEY", "")
+    odoo_user = env_data.get("ODOO_USER", "admin")
+    db = inst["db"]
+    url = inst.get("url") or f"http://localhost:{inst['port']}"
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No API key — generate one first from the instance detail page")
+
+    try:
+        common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common", allow_none=True)
+        uid = common.authenticate(db, odoo_user, api_key, {})
+        if not uid:
+            raise HTTPException(status_code=401, detail="Odoo authentication failed — check API key")
+        models_proxy = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object", allow_none=True)
+        return models_proxy.execute_kw(db, uid, api_key, model, method, args, kw or {})
+    except xmlrpc.client.Fault as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Cannot reach instance: {e}")
+
+
+def _set_password_via_shell(inst: dict, user_id: int, password: str) -> str:
+    """Set a user's password using odoo-bin shell. Returns the user's login."""
+    instance_id = inst["id"]
+    conf_path = WORKSPACE_ROOT / inst["path"] / "odoo.conf"
+    odoo_bin = _odoo_bin_path(inst["version"])
+    conda_python = _instance_env_python(instance_id)
+    db = inst["db"]
+
+    shell_script = (
+        f"user = env['res.users'].browse({int(user_id)})\n"
+        f"login = user.login\n"
+        f"user.write({{'password': {repr(password)}}})\n"
+        f"env.cr.commit()\n"
+        f"print(f'LOGIN={{login}}')\n"
+    )
+
+    result = subprocess.run(
+        [str(conda_python), str(odoo_bin), "shell",
+         "-d", db, "-c", str(conf_path), "--no-http"],
+        input=shell_script,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    login = ""
+    for line in result.stdout.splitlines():
+        if line.startswith("LOGIN="):
+            login = line.split("=", 1)[1].strip()
+
+    if not login and result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr[:500])
+
+    return login or "(unknown)"
+
+
+@app.get("/instances/{instance_id}/users")
+def instance_users(instance_id: str):
+    """Return list of internal (non-portal, non-public) users."""
+    inst = get_instance(instance_id)
+    users = _rpc_execute(
+        inst, "res.users", "search_read",
+        [[("share", "=", False), ("active", "=", True)]],
+        {"fields": ["id", "name", "login"], "order": "name asc", "limit": 200},
+    )
+    return {"users": users}
+
+
+@app.get("/instances/{instance_id}/open-as/{user_id}")
+def open_as(instance_id: str, user_id: int):
+    """Set user password to 'demo' and return an auto-login HTML page."""
+    inst = get_instance(instance_id)
+    if inst.get("instance_type") != "local":
+        raise HTTPException(status_code=400, detail="Only supported for local instances")
+
+    login = _set_password_via_shell(inst, user_id, "demo")
+
+    port = inst["port"]
+    db = inst["db"]
+    odoo_url = f"http://localhost:{port}"
+
+    def esc(s: str) -> str:
+        return _html.escape(str(s), quote=True)
+
+    page = f"""<!DOCTYPE html>
+<html>
+<head><title>Connecting as {esc(login)}…</title>
+<style>body{{font-family:sans-serif;padding:2rem;color:#333}}</style>
+</head>
+<body>
+<p>Connecting as <strong>{esc(login)}</strong>&hellip; (temporary password: <code>demo</code>)</p>
+<form method="POST" action="{esc(odoo_url)}/web/login" id="f">
+  <input type="hidden" name="db" value="{esc(db)}">
+  <input type="hidden" name="login" value="{esc(login)}">
+  <input type="hidden" name="password" value="demo">
+  <input type="hidden" name="redirect" value="/odoo">
+</form>
+<script>document.getElementById('f').submit();</script>
+</body>
+</html>"""
+    return HTMLResponse(page)
+
+
+@app.post("/instances/{instance_id}/change-password")
+def change_password_endpoint(
+    instance_id: str,
+    user_id: int = Form(...),
+    password: str = Form(...),
+):
+    """Change a user's password."""
+    inst = get_instance(instance_id)
+    if inst.get("instance_type") != "local":
+        raise HTTPException(status_code=400, detail="Only supported for local instances")
+    login = _set_password_via_shell(inst, user_id, password)
+    return {"status": "ok", "login": login}
+
+
+# ---------------------------------------------------------------------------
+# Routes — version detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_odoo_version_from_sql(sql_text: str) -> str | None:
+    """
+    Detect Odoo major version from SQL dump content.
+    Looks for module version strings (e.g. '17.0.1.3') near 'base' or 'ir_module'
+    in the first 300 KB of the dump.
+    """
+    known = {"19.0", "18.0", "17.0", "16.0", "15.0", "14.0", "13.0", "12.0"}
+    chunk = sql_text[:300_000]
+    for m in re.finditer(r"(\d+\.\d+)\.\d+\.\d+", chunk):
+        candidate = m.group(1) + ".0"
+        if candidate in known:
+            start = max(0, m.start() - 500)
+            end = min(len(chunk), m.end() + 100)
+            context = chunk[start:end]
+            if "base" in context or "ir_module" in context:
+                return candidate
+    return None
+
+
+@app.post("/api/detect-version")
+async def detect_version(zip_file: UploadFile = File(...)):
+    """Detect Odoo version from a backup ZIP file by scanning dump.sql."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        tmp_zip = tmp_path / (zip_file.filename or "backup.zip")
+        tmp_zip.write_bytes(await zip_file.read())
+
+        try:
+            with zipfile.ZipFile(tmp_zip) as zf:
+                if "dump.sql" not in zf.namelist():
+                    return {"version": None, "error": "No dump.sql found in ZIP"}
+                with zf.open("dump.sql") as f:
+                    sql_chunk = f.read(300_000).decode("utf-8", errors="replace")
+        except zipfile.BadZipFile:
+            return {"version": None, "error": "Invalid ZIP file"}
+
+        version = _detect_odoo_version_from_sql(sql_chunk)
+        return {"version": version}
+
+
+# ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
 
