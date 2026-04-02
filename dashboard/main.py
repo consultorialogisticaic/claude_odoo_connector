@@ -1518,13 +1518,46 @@ def _set_password_via_shell(inst: dict, user_id: int, password: str) -> str:
 
 @app.get("/instances/{instance_id}/users")
 def instance_users(instance_id: str):
-    """Return list of internal (non-portal, non-public) users."""
+    """Return list of internal (non-portal, non-public) users via odoo-bin shell."""
     inst = get_instance(instance_id)
-    users = _rpc_execute(
-        inst, "res.users", "search_read",
-        [[("share", "=", False), ("active", "=", True)]],
-        {"fields": ["id", "name", "login"], "order": "name asc", "limit": 200},
+    instance_id_str = inst["id"]
+    conf_path = WORKSPACE_ROOT / inst["path"] / "odoo.conf"
+    odoo_bin = _odoo_bin_path(inst["version"])
+    conda_python = _instance_env_python(instance_id_str)
+    db = inst["db"]
+
+    shell_script = (
+        "import json\n"
+        "users = env['res.users'].search_read(\n"
+        "    [('share', '=', False), ('active', '=', True)],\n"
+        "    ['id', 'name', 'login'],\n"
+        "    order='name asc', limit=200\n"
+        ")\n"
+        "print('USERS=' + json.dumps(users))\n"
     )
+
+    result = subprocess.run(
+        [str(conda_python), str(odoo_bin), "shell",
+         "-d", db, "-c", str(conf_path), "--no-http"],
+        input=shell_script,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    users = []
+    for line in result.stdout.splitlines():
+        if line.startswith("USERS="):
+            try:
+                import json as _json
+                users = _json.loads(line.split("=", 1)[1])
+            except Exception:
+                pass
+            break
+
+    if not users and result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr[:500])
+
     return {"users": users}
 
 
