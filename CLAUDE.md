@@ -53,7 +53,10 @@ python tools/manifest_parser.py --version 18.0 --apps-only
 
 ```bash
 pip install -r requirements.txt
-uvicorn dashboard.main:app --reload --port 7070
+# From the consumer project root (e.g. odoo_demo_creator/):
+uvicorn connector.dashboard.main:app --reload --port 7070
+# Or set workspace path explicitly:
+ODOO_WORKSPACE_ROOT=/path/to/odoo-workspace uvicorn connector.dashboard.main:app --port 7070
 ```
 
 Dashboard at http://localhost:7070. Manages local and remote Odoo instances.

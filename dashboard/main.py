@@ -39,7 +39,10 @@ from fastapi.templating import Jinja2Templates
 # ---------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).parent
-WORKSPACE_ROOT = BASE_DIR.parent / "odoo-workspace"
+# ODOO_WORKSPACE_ROOT env var lets consumers (e.g. a parent repo using connector
+# as a submodule) point to their own odoo-workspace. Falls back to cwd/odoo-workspace
+# so `uvicorn connector.dashboard.main:app` run from the project root works naturally.
+WORKSPACE_ROOT = Path(os.environ.get("ODOO_WORKSPACE_ROOT", Path.cwd() / "odoo-workspace"))
 REGISTRY_PATH = WORKSPACE_ROOT / "workspace.json"
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
