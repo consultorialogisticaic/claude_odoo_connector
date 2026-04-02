@@ -1602,10 +1602,15 @@ def open_as(instance_id: str, user_id: int):
 
     response = HTMLResponse(page)
     if session_id:
-        # Forward Odoo's session cookie with Domain=localhost so the browser
-        # sends it when posting the form to localhost:{port}. Both the dashboard
-        # (localhost:7070) and Odoo (localhost:{port}) share the localhost domain,
-        # so SameSite=Lax allows the cookie to be included in the cross-port POST.
+        # The browser likely has an existing host-only HttpOnly session_id from
+        # a previous Odoo visit. Because cookies have no port dimension, a
+        # Max-Age=0 deletion header (no Domain attr → host-only for localhost)
+        # served from localhost:7070 will delete the cookie set by localhost:{port}.
+        # Then we set our new session cookie so only S1 is sent with the form POST.
+        response.headers.append(
+            "Set-Cookie",
+            "session_id=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
+        )
         response.set_cookie(
             "session_id", session_id,
             domain="localhost",
