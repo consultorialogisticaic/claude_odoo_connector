@@ -88,9 +88,14 @@ dd { font-weight: 500; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow: visible;
   box-shadow: var(--shadow);
 }
+/* Restore rounded corners without overflow:hidden (which clips dropdowns) */
+.instance-table thead tr:first-child th:first-child { border-radius: var(--radius) 0 0 0; }
+.instance-table thead tr:first-child th:last-child  { border-radius: 0 var(--radius) 0 0; }
+.instance-table tbody tr:last-child td:first-child  { border-radius: 0 0 0 var(--radius); }
+.instance-table tbody tr:last-child td:last-child   { border-radius: 0 0 var(--radius) 0; }
 .instance-table th {
   background: #f1f3f5;
   text-align: left;
@@ -354,12 +359,15 @@ details.error-details pre {
   cursor: default;
 }
 
-.split-btn-main {
+.split-btn-main,
+.split-btn-main:is(a, button, span) {
   display: inline-flex;
   align-items: center;
-  padding: .32rem .75rem;
+  height: 28px;
+  padding: 0 .75rem;
   font-size: .8rem;
   font-weight: 500;
+  line-height: 1;
   border: none;
   border-radius: var(--radius) 0 0 var(--radius);
   border-right: 1px solid rgba(255,255,255,.2);
@@ -368,17 +376,24 @@ details.error-details pre {
   text-decoration: none;
   letter-spacing: .01em;
   transition: background .15s;
+  box-sizing: border-box;
+  -webkit-appearance: none;
 }
 .split-btn-caret {
   display: inline-flex;
   align-items: center;
-  padding: .32rem .5rem;
+  justify-content: center;
+  height: 28px;
+  width: 26px;
+  padding: 0;
   font-size: .65rem;
+  line-height: 1;
   border: none;
   border-radius: 0 var(--radius) var(--radius) 0;
   cursor: pointer;
   transition: background .15s;
-  line-height: 1;
+  box-sizing: border-box;
+  -webkit-appearance: none;
 }
 
 /* Dropdown */
