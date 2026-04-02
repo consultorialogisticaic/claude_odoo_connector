@@ -1,1 +1,1 @@
-../skills/odoo-version-delta.md
+/Users/josemonsalvediaz/Documents/CLIC/Desarrollos/claude_odoo_connector/skills/odoo-version-delta.md

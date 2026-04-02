@@ -1,1 +1,1 @@
-../skills/odoo-connect.md
+/Users/josemonsalvediaz/Documents/CLIC/Desarrollos/claude_odoo_connector/skills/odoo-connect.md

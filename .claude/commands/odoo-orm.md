@@ -1,1 +1,1 @@
-../skills/odoo-orm.md
+/Users/josemonsalvediaz/Documents/CLIC/Desarrollos/claude_odoo_connector/skills/odoo-orm.md
