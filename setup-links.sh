@@ -13,11 +13,15 @@ COMMANDS_DIR="$CONSUMER_DIR/.claude/commands"
 
 mkdir -p "$COMMANDS_DIR"
 
+connector_name="$(basename "$CONNECTOR_DIR")"
+
 linked=0
 for skill in "$CONNECTOR_DIR"/skills/*.md; do
     name="$(basename "$skill")"
-    ln -sf "$skill" "$COMMANDS_DIR/$name"
-    echo "  linked: $name"
+    # Use a relative path so the symlink works on any machine after cloning
+    rel_path="../../$connector_name/skills/$name"
+    ln -sf "$rel_path" "$COMMANDS_DIR/$name"
+    echo "  linked: $name -> $rel_path"
     linked=$((linked + 1))
 done
 
