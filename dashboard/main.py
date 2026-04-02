@@ -11,6 +11,9 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac as hmac_mod
 import json
 import os
 import shutil
@@ -1550,60 +1553,102 @@ def instance_users(instance_id: str):
 
 @app.get("/instances/{instance_id}/open-as/{user_id}")
 def open_as(instance_id: str, user_id: int):
-    """Authenticate server-side via JSON-RPC and redirect browser directly to Odoo.
+    """Connect to Odoo as a specific user.
 
-    Avoids all CSRF and cookie-precedence issues:
-    - JSON-RPC /web/session/authenticate requires no CSRF token.
-    - The resulting session_id is set as a host-only cookie (no Domain attr),
-      which is the same type Odoo itself sets, so it REPLACES the browser's
-      existing Odoo session rather than competing with it.
+    Approach: generate a fresh session_id, compute a valid CSRF token for it
+    (using Odoo's formula: HMAC-SHA1 of sid[:42]+max_ts keyed by database.secret),
+    then return an HTML page that:
+      1. Sets the new session_id as a host-only cookie via the HTTP Set-Cookie header
+         (server-sent Set-Cookie can replace existing HttpOnly cookies; JS cannot).
+      2. Auto-submits a POST form to /web/login on the Odoo port with the correct
+         CSRF token, so Odoo's own login flow handles auth and sets its own session.
+
+    This avoids all cookie-port-precedence ambiguity because Odoo's login POST
+    itself sets the final authenticated session cookie directly from the Odoo origin.
     """
     inst = get_instance(instance_id)
     if inst.get("type", "local") != "local":
         raise HTTPException(status_code=400, detail="Only supported for local instances")
 
+    # Set user password to "demo" so the form login succeeds
     login = _set_password_via_shell(inst, user_id, "demo")
 
     port = inst["port"]
     db = inst["db"]
     odoo_url = f"http://localhost:{port}"
 
-    # Authenticate server-side — no CSRF token needed for JSON-RPC
-    try:
-        with httpx.Client(timeout=15, follow_redirects=False) as client:
-            resp = client.post(
-                f"{odoo_url}/web/session/authenticate",
-                json={"jsonrpc": "2.0", "method": "call", "params": {
-                    "db": db, "login": login, "password": "demo",
-                }},
-                headers={"Content-Type": "application/json"},
-            )
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Cannot reach Odoo: {e}")
-
-    data = resp.json()
-    uid = (data.get("result") or {}).get("uid")
-    if not uid:
-        err = (data.get("error") or {}).get("message", "authentication rejected")
-        raise HTTPException(status_code=400, detail=f"Odoo login failed: {err}")
-
-    session_id = resp.cookies.get("session_id", "")
-    if not session_id:
-        raise HTTPException(status_code=500, detail="No session_id returned by Odoo")
-
-    # Redirect browser to Odoo.
-    # Set session cookie WITHOUT Domain attr → host-only, same type as Odoo's own
-    # Set-Cookie. This replaces (not competes with) the browser's existing Odoo
-    # session because they share the same cookie key (name + localhost + path=/
-    # + host-only-flag).
-    response = RedirectResponse(url=f"{odoo_url}/odoo", status_code=303)
-    response.set_cookie(
-        "session_id", session_id,
-        path="/",
-        httponly=True,
-        samesite="lax",
-        # intentionally no domain= — host-only cookie, matches and replaces Odoo's
+    # Fetch database.secret — needed to compute the CSRF token
+    sql_secret = "SELECT value FROM ir_config_parameter WHERE key='database.secret'"
+    r = subprocess.run(
+        ["psql", "-d", db, "-t", "-A", "-c", sql_secret],
+        capture_output=True, text=True, timeout=10,
     )
+    if r.returncode != 0 or not r.stdout.strip():
+        raise HTTPException(status_code=500,
+                            detail=f"Cannot read database.secret: {r.stderr[:200]}")
+    db_secret = r.stdout.strip()
+
+    # Generate a fresh Odoo-compatible session ID:
+    # SHA-512(time + 64 random bytes), drop last byte to avoid b64 padding → 84 chars
+    raw = str(time.time()).encode() + os.urandom(64)
+    sid = base64.urlsafe_b64encode(hashlib.sha512(raw).digest()[:-1]).decode()
+
+    # Write a minimal session file so _get_session_and_dbname loads session.db.
+    # Without this, ensure_db() in web_login redirects (aborting our POST body)
+    # because the session has no db and the form's 'db' param is a "new session" case.
+    sessions_dir = WORKSPACE_ROOT / inst["path"] / "data" / "sessions"
+    sha_dir = sessions_dir / sid[:2]
+    sha_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
+    session_file = sha_dir / sid
+    session_file.write_text(json.dumps({
+        "context": {"lang": "en_US"},
+        "create_time": time.time(),
+        "db": db,
+        "debug": "",
+        "login": None,
+        "uid": None,
+        "session_token": None,
+        "_trace": [],
+    }))
+
+    # Compute a CSRF token valid for this session (1-year expiry salt)
+    # Formula from odoo/http.py:csrf_token():
+    #   hm = HMAC-SHA1(key=db_secret, msg=f'{sid[:42]}{max_ts}'.encode())
+    #   token = f'{hm.hexdigest()}o{max_ts}'
+    max_ts = int(time.time()) + 60 * 60 * 24 * 365
+    csrf_msg = f"{sid[:42]}{max_ts}".encode()
+    csrf_hm = hmac_mod.new(db_secret.encode("ascii"), csrf_msg, hashlib.sha1).hexdigest()
+    csrf_token = f"{csrf_hm}o{max_ts}"
+
+    def esc(s: str) -> str:
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Connecting to Odoo…</title>
+  <style>
+    body {{ font-family: sans-serif; padding: 2rem; color: #555; }}
+  </style>
+</head>
+<body>
+  <p>Connecting as <strong>{esc(login)}</strong>…</p>
+  <form id="f" method="POST" action="{esc(odoo_url)}/web/login">
+    <input type="hidden" name="db"         value="{esc(db)}" />
+    <input type="hidden" name="login"      value="{esc(login)}" />
+    <input type="hidden" name="password"   value="demo" />
+    <input type="hidden" name="csrf_token" value="{esc(csrf_token)}" />
+    <input type="hidden" name="redirect"   value="/odoo" />
+  </form>
+  <script>document.getElementById('f').submit();</script>
+</body>
+</html>"""
+
+    response = HTMLResponse(content=html)
+    # Replace browser's existing session_id for localhost (all ports share the same
+    # cookie jar entry; server-sent Set-Cookie can overwrite an existing HttpOnly cookie).
+    response.set_cookie("session_id", sid, path="/", httponly=True, samesite="lax")
     return response
 
 
