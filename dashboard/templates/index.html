@@ -209,7 +209,10 @@ function openConnectAs(instanceId) {
   body.innerHTML = '<p>Loading users…</p>';
   document.getElementById('connect-as-dialog').showModal();
   fetch(`/instances/${instanceId}/users`)
-    .then(r => r.json())
+    .then(r => {
+      if (!r.ok) return r.json().then(e => Promise.reject(e.detail || r.statusText));
+      return r.json();
+    })
     .then(data => {
       if (!data.users || !data.users.length) {
         body.innerHTML = '<p>No internal users found.</p>';
@@ -229,8 +232,8 @@ function openConnectAs(instanceId) {
           </a>
         </div>`).join('');
     })
-    .catch(() => {
-      body.innerHTML = '<p class="text-danger">Failed to load users — is the instance running and API key configured?</p>';
+    .catch(err => {
+      body.innerHTML = `<p class="text-danger">Failed to load users: ${escHtml(String(err))}</p>`;
     });
 }
 
@@ -244,13 +247,24 @@ function openChangePassword(instanceId) {
   document.getElementById('cp-password').value = '';
   document.getElementById('change-password-dialog').showModal();
   fetch(`/instances/${instanceId}/users`)
-    .then(r => r.json())
+    .then(r => {
+      if (!r.ok) return r.json().then(e => Promise.reject(e.detail || r.statusText));
+      return r.json();
+    })
     .then(data => {
+      if (!data.users || !data.users.length) {
+        sel.innerHTML = '<option disabled>No users found</option>';
+        return;
+      }
       sel.innerHTML = data.users.map(u =>
         `<option value="${u.id}">${escHtml(u.name)} (${escHtml(u.login)})</option>`
       ).join('');
     })
-    .catch(() => { sel.innerHTML = '<option>Failed to load</option>'; });
+    .catch(err => {
+      sel.innerHTML = '<option disabled>Failed to load</option>';
+      msg.textContent = String(err);
+      msg.style.color = 'var(--danger)';
+    });
 }
 
 async function doChangePassword(e) {
