@@ -1,0 +1,1 @@
+../skills/odoo-connect.md
