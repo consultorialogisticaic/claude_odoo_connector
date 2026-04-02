@@ -108,12 +108,11 @@
     <h2>Snapshot &amp; Restore</h2>
 
     <h3>Create snapshot</h3>
-    <button
+    <a
       class="btn-secondary"
-      hx-post="/instances/{{ inst.id }}/snapshot"
-      hx-swap="none"
-      hx-on::after-request="alert('Snapshot saved to data/ folder')"
-    >Snapshot DB</button>
+      href="/instances/{{ inst.id }}/snapshot/download"
+      download
+    >↓ Download Snapshot</a>
 
     <h3>Restore from .sql</h3>
     <form hx-post="/instances/{{ inst.id }}/restore" hx-swap="none"
@@ -191,6 +190,14 @@
 </div>
 
 <script>
+  // ── .env secret field toggle (called from env_editor partial) ────────────
+  function toggleSecret(btn) {
+    const input = btn.previousElementSibling;
+    const isHidden = input.type === 'password';
+    input.type = isHidden ? 'text' : 'password';
+    btn.textContent = isHidden ? 'Hide' : 'Show';
+  }
+
   // ── API key status polling ─────────────────────────────────────────────────
   function toggleApiKeyReveal(btn) {
     const valueEl = document.getElementById('apikey-value');

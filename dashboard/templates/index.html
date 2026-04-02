@@ -4,9 +4,14 @@
 {% block content %}
 <section class="page-header">
   <h1>Odoo Instances</h1>
-  <button class="btn-primary" onclick="document.getElementById('new-instance-dialog').showModal()">
-    + New Instance
-  </button>
+  <div style="display:flex;gap:.5rem">
+    <button class="btn-secondary" onclick="document.getElementById('import-zip-dialog').showModal()">
+      ↑ Import .zip
+    </button>
+    <button class="btn-primary" onclick="document.getElementById('new-instance-dialog').showModal()">
+      + New Instance
+    </button>
+  </div>
 </section>
 
 <!-- Instance list -->
@@ -80,6 +85,50 @@
   </form>
 </dialog>
 
+<!-- Import .zip dialog -->
+<dialog id="import-zip-dialog">
+  <form
+    hx-post="/instances/create"
+    hx-encoding="multipart/form-data"
+    hx-target="#instance-list"
+    hx-swap="innerHTML"
+    hx-on::after-request="document.getElementById('import-zip-dialog').close()"
+  >
+    <!-- hidden: always restore from zip -->
+    <input type="hidden" name="base" value="zip" />
+
+    <h2>Import .zip Backup</h2>
+
+    <label>
+      Client slug
+      <input type="text" name="client" placeholder="acme" required pattern="[a-z0-9\-]+" />
+    </label>
+
+    <label>
+      Odoo version
+      <select name="version" id="import-version-select" required>
+        <option value="" disabled selected>Loading versions…</option>
+      </select>
+    </label>
+
+    <label>
+      Database name
+      <input type="text" name="db_name" placeholder="acme_demo" required />
+    </label>
+
+    <label>
+      Odoo backup .zip
+      <input type="file" name="zip_upload" accept=".zip" required />
+    </label>
+    <p class="field-hint">Expects standard Odoo backup format: <code>dump.sql</code> + <code>filestore/</code>.</p>
+
+    <div class="dialog-actions">
+      <button type="button" onclick="document.getElementById('import-zip-dialog').close()">Cancel</button>
+      <button type="submit" class="btn-primary">Import</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 function toggleBaseFields() {
   const val = document.getElementById('base-select').value;
@@ -88,22 +137,30 @@ function toggleBaseFields() {
   document.getElementById('base-clone-field').style.display = val === 'clone' ? 'block' : 'none';
 }
 
-// Populate version dropdown from GitHub branches
+// Populate version dropdowns from GitHub branches
 (async function loadVersions() {
-  const select = document.getElementById('version-select');
+  const selects = [
+    document.getElementById('version-select'),
+    document.getElementById('import-version-select'),
+  ];
   try {
     const resp = await fetch('/api/odoo-versions');
     const data = await resp.json();
-    select.innerHTML = '';
-    data.versions.forEach((v, i) => {
-      const opt = document.createElement('option');
-      opt.value = v;
-      opt.textContent = v;
-      if (i === 0) opt.selected = true;
-      select.appendChild(opt);
+    selects.forEach(select => {
+      if (!select) return;
+      select.innerHTML = '';
+      data.versions.forEach((v, i) => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        if (i === 0) opt.selected = true;
+        select.appendChild(opt);
+      });
     });
   } catch (e) {
-    select.innerHTML = '<option value="" disabled>Failed to load — refresh</option>';
+    selects.forEach(select => {
+      if (select) select.innerHTML = '<option value="" disabled>Failed to load — refresh</option>';
+    });
   }
 })();
 </script>

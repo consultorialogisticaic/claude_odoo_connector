@@ -24,12 +24,3 @@
     <button type="submit" class="btn-primary btn-sm">Save .env</button>
   </div>
 </form>
-
-<script>
-function toggleSecret(btn) {
-  const input = btn.previousElementSibling;
-  const isHidden = input.type === 'password';
-  input.type = isHidden ? 'text' : 'password';
-  btn.textContent = isHidden ? 'Hide' : 'Show';
-}
-</script>

@@ -1340,6 +1340,34 @@ async def snapshot(instance_id: str):
     return {"status": "ok", "path": str(dump_path)}
 
 
+@app.get("/instances/{instance_id}/snapshot/download")
+async def snapshot_download(instance_id: str):
+    """Stream a pg_dump of the instance database directly as a file download."""
+    inst = get_instance(instance_id)
+    db = inst["db"]
+    filename = f"{db}_snapshot.sql"
+
+    async def _stream():
+        proc = await asyncio.create_subprocess_exec(
+            "pg_dump", "-F", "p", db,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        assert proc.stdout is not None
+        while True:
+            chunk = await proc.stdout.read(65536)
+            if not chunk:
+                break
+            yield chunk
+        await proc.wait()
+
+    return StreamingResponse(
+        _stream(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/instances/{instance_id}/restore")
 async def restore(instance_id: str, sql_path: str = Form(...)):
     inst = get_instance(instance_id)
