@@ -1564,16 +1564,21 @@ def open_as(instance_id: str, user_id: int):
     def esc(s: str) -> str:
         return _html.escape(str(s), quote=True)
 
-    # Fetch the CSRF token from Odoo's login page — required for form POST
+    # Server-side GET Odoo login page to capture both the csrf_token AND the
+    # session_id cookie. Both must match — the CSRF token is derived from the
+    # session secret, so we must forward the session cookie to the browser so
+    # it's included when the form auto-submits.
     csrf_token = ""
+    session_id = ""
     try:
-        with httpx.Client(timeout=5) as client:
+        with httpx.Client(timeout=5, follow_redirects=True) as client:
             resp = client.get(f"{odoo_url}/web/login")
             m = re.search(r'<input[^>]+name="csrf_token"[^>]+value="([^"]+)"', resp.text)
             if not m:
                 m = re.search(r'"csrf_token"\s*:\s*"([^"]+)"', resp.text)
             if m:
                 csrf_token = m.group(1)
+            session_id = resp.cookies.get("session_id", "")
     except Exception:
         pass
 
@@ -1594,7 +1599,21 @@ def open_as(instance_id: str, user_id: int):
 <script>document.getElementById('f').submit();</script>
 </body>
 </html>"""
-    return HTMLResponse(page)
+
+    response = HTMLResponse(page)
+    if session_id:
+        # Forward Odoo's session cookie with Domain=localhost so the browser
+        # sends it when posting the form to localhost:{port}. Both the dashboard
+        # (localhost:7070) and Odoo (localhost:{port}) share the localhost domain,
+        # so SameSite=Lax allows the cookie to be included in the cross-port POST.
+        response.set_cookie(
+            "session_id", session_id,
+            domain="localhost",
+            path="/",
+            httponly=True,
+            samesite="lax",
+        )
+    return response
 
 
 @app.post("/instances/{instance_id}/change-password")
