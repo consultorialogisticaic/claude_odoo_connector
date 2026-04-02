@@ -1552,20 +1552,28 @@ def instance_users(instance_id: str):
 
 
 @app.get("/instances/{instance_id}/open-as/{user_id}")
-def open_as(instance_id: str, user_id: int):
+def open_as(instance_id: str, user_id: int, request: Request):
     """Connect to Odoo as a specific user.
 
-    Approach: generate a fresh session_id, compute a valid CSRF token for it
-    (using Odoo's formula: HMAC-SHA1 of sid[:42]+max_ts keyed by database.secret),
-    then return an HTML page that:
-      1. Sets the new session_id as a host-only cookie via the HTTP Set-Cookie header
-         (server-sent Set-Cookie can replace existing HttpOnly cookies; JS cannot).
-      2. Auto-submits a POST form to /web/login on the Odoo port with the correct
-         CSRF token, so Odoo's own login flow handles auth and sets its own session.
+    Approach: generate a fresh session_id, write a minimal session file to disk,
+    compute a valid CSRF token (HMAC-SHA1 of sid[:42]+max_ts keyed by database.secret),
+    then return an HTML page that auto-submits a login form to Odoo.
 
-    This avoids all cookie-port-precedence ambiguity because Odoo's login POST
-    itself sets the final authenticated session cookie directly from the Odoo origin.
+    Uses 127.0.0.1 instead of localhost for the form target to avoid cookie
+    collisions: browsers may keep separate session_id cookies per port on
+    localhost, so our Set-Cookie wouldn't replace Odoo's existing cookie.
+    Using 127.0.0.1 gives us a clean cookie namespace.
     """
+    # Redirect to 127.0.0.1 so our Set-Cookie and the form POST target share
+    # the same hostname — avoids cookie conflicts with existing localhost sessions.
+    host = request.headers.get("host", "")
+    if host.startswith("localhost"):
+        dashboard_port = host.split(":")[-1] if ":" in host else "7070"
+        return RedirectResponse(
+            url=f"http://127.0.0.1:{dashboard_port}/instances/{instance_id}/open-as/{user_id}",
+            status_code=303,
+        )
+
     inst = get_instance(instance_id)
     if inst.get("type", "local") != "local":
         raise HTTPException(status_code=400, detail="Only supported for local instances")
@@ -1575,7 +1583,7 @@ def open_as(instance_id: str, user_id: int):
 
     port = inst["port"]
     db = inst["db"]
-    odoo_url = f"http://localhost:{port}"
+    odoo_url = f"http://127.0.0.1:{port}"
 
     # Fetch database.secret — needed to compute the CSRF token
     sql_secret = "SELECT value FROM ir_config_parameter WHERE key='database.secret'"
