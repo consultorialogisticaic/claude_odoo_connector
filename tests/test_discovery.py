@@ -1,6 +1,5 @@
 """Tests for tools/discovery.py — all OdooRPC calls are mocked."""
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import MagicMock
 
 import sys
 from pathlib import Path
@@ -12,7 +11,6 @@ from tools.discovery import (
     get_model_fields,
     check_model_views,
     get_model_actions,
-    STANDARD_AUTHORS,
 )
 
 
