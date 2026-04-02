@@ -92,13 +92,22 @@ rpc.installed_modules()
 
 ## Information Sources (in priority order)
 
-1. Odoo official docs: https://www.odoo.com/documentation/17.0/
+1. **Odoo official documentation** — always use the version-specific URL:
+   `https://www.odoo.com/documentation/<version>/`
+   e.g. for v19: `https://www.odoo.com/documentation/19.0/`
+   Fetch the relevant page with `WebFetch` before answering any functional question.
+   Key sub-paths:
+   - `/applications/` — module-level guides (sales, inventory, accounting, etc.)
+   - `/administration/` — installation, upgrades, multi-company
+   - `/developer/` — technical reference when needed
 2. Odoo blog: https://www.odoo.com/blog
 3. Cybrosys blog: https://www.cybrosys.com/blog/
 4. OCA documentation on GitHub: https://github.com/OCA
 5. YouTube — Odoo official channel
 
-When citing, always include the URL and the version of Odoo the information applies to.
+**Mandatory:** For any functional question, always check `https://www.odoo.com/documentation/<version>/` first with `WebFetch` before drawing on recalled knowledge. Odoo documentation evolves between versions — recalled knowledge may be stale.
+
+When citing, always include the full URL and the Odoo version the information applies to.
 
 ---
 
