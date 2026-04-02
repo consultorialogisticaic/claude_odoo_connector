@@ -1550,7 +1550,7 @@ def instance_users(instance_id: str):
 
 @app.get("/instances/{instance_id}/open-as/{user_id}")
 def open_as(instance_id: str, user_id: int):
-    """Set user password to 'demo' and return an auto-login HTML page."""
+    """Set user password to 'demo' and auto-login to Odoo."""
     inst = get_instance(instance_id)
     if inst.get("type", "local") != "local":
         raise HTTPException(status_code=400, detail="Only supported for local instances")
@@ -1564,6 +1564,19 @@ def open_as(instance_id: str, user_id: int):
     def esc(s: str) -> str:
         return _html.escape(str(s), quote=True)
 
+    # Fetch the CSRF token from Odoo's login page — required for form POST
+    csrf_token = ""
+    try:
+        with httpx.Client(timeout=5) as client:
+            resp = client.get(f"{odoo_url}/web/login")
+            m = re.search(r'<input[^>]+name="csrf_token"[^>]+value="([^"]+)"', resp.text)
+            if not m:
+                m = re.search(r'"csrf_token"\s*:\s*"([^"]+)"', resp.text)
+            if m:
+                csrf_token = m.group(1)
+    except Exception:
+        pass
+
     page = f"""<!DOCTYPE html>
 <html>
 <head><title>Connecting as {esc(login)}…</title>
@@ -1576,6 +1589,7 @@ def open_as(instance_id: str, user_id: int):
   <input type="hidden" name="login" value="{esc(login)}">
   <input type="hidden" name="password" value="demo">
   <input type="hidden" name="redirect" value="/odoo">
+  <input type="hidden" name="csrf_token" value="{esc(csrf_token)}">
 </form>
 <script>document.getElementById('f').submit();</script>
 </body>
