@@ -1,4 +1,5 @@
 {
   "pythonVersion": "3.10",
+  "pythonPath": "/Users/josemonsalvediaz/miniconda3/bin/python",
   "extraPaths": ["."]
 }
