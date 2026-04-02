@@ -1,0 +1,1 @@
+../skills/odoo-version-delta.md

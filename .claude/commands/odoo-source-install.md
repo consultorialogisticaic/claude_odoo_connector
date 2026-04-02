@@ -1,0 +1,1 @@
+../skills/odoo-source-install.md
