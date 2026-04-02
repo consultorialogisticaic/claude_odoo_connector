@@ -1,0 +1,18 @@
+# Dashboard
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+jinja2>=3.1.4
+python-multipart>=0.0.9
+psutil>=5.9.8
+
+# Odoo interaction
+# (xmlrpc is stdlib, no extra package needed)
+
+# Async file I/O (non-blocking SSE log streaming)
+aiofiles>=23.0
+
+# HTTP client (dashboard health checks from scripts)
+httpx>=0.27.0
+
+# Dev / tooling
+python-dotenv>=1.0.1
