@@ -1552,7 +1552,7 @@ def instance_users(instance_id: str):
 def open_as(instance_id: str, user_id: int):
     """Set user password to 'demo' and return an auto-login HTML page."""
     inst = get_instance(instance_id)
-    if inst.get("instance_type") != "local":
+    if inst.get("type", "local") != "local":
         raise HTTPException(status_code=400, detail="Only supported for local instances")
 
     login = _set_password_via_shell(inst, user_id, "demo")
@@ -1591,7 +1591,7 @@ def change_password_endpoint(
 ):
     """Change a user's password."""
     inst = get_instance(instance_id)
-    if inst.get("instance_type") != "local":
+    if inst.get("type", "local") != "local":
         raise HTTPException(status_code=400, detail="Only supported for local instances")
     login = _set_password_via_shell(inst, user_id, password)
     return {"status": "ok", "login": login}
