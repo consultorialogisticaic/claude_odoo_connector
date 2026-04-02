@@ -567,11 +567,16 @@ def _generate_api_key_sync(instance_id: str, inst: dict) -> None:
             _apikey_state[instance_id]["message"] = "Generating API key…"
         _persist_apikey_state(instance_id, inst)
 
-        # Generate API key via odoo-bin shell
+        # Generate API key via odoo-bin shell.
+        # Odoo 19 added a required expiration_date argument to _generate().
+        # Try new signature (False = no expiration) and fall back to old one.
         shell_script = (
             "user = env['res.users'].browse(2)\n"
             "user.password = 'admin'\n"
-            "key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id)\n"
+            "try:\n"
+            "    key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id, False)\n"
+            "except TypeError:\n"
+            "    key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id)\n"
             "print(f'API_KEY={key}')\n"
             "env.cr.commit()\n"
         )

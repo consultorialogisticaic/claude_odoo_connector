@@ -48,7 +48,12 @@ Then in the shell:
 ```python
 user = env['res.users'].browse(2)
 user.password = 'admin'
-key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id)
+# Odoo 19+ requires expiration_date (False = no expiration)
+# Older versions don't accept it — try new signature, fall back to old
+try:
+    key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id, False)
+except TypeError:
+    key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id)
 print(key)
 env.cr.commit()
 ```
