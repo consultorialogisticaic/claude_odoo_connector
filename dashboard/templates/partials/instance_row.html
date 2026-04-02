@@ -1,0 +1,62 @@
+<tr id="row-{{ inst.id }}">
+  <td><a href="/instance/{{ inst.id }}">{{ inst.id }}</a></td>
+  <td>
+    <span class="badge badge-{{ inst.instance_type }}">{{ inst.instance_type }}</span>
+  </td>
+  <td>{{ inst.version }}</td>
+  <td>{{ inst.db }}</td>
+  <td>
+    {% if inst.url %}
+      <a href="{{ inst.url }}" target="_blank">{{ inst.url }}</a>
+    {% elif inst.port %}
+      :{{ inst.port }}
+    {% endif %}
+  </td>
+  <td>
+    <span class="badge badge-{{ inst.status }}">{{ inst.status }}</span>
+    {% if inst.instance_type == "local" %}
+      {% if not inst.version_ready %}
+        <span class="badge badge-cloning">cloning</span>
+      {% elif not inst.env_ready %}
+        <span class="badge badge-cloning">env setup</span>
+      {% endif %}
+    {% endif %}
+    {% if inst.get("discovery_status") == "complete" %}
+      <span class="badge badge-success">discovered</span>
+    {% elif inst.get("discovery_status") == "none" %}
+      <span class="badge badge-warning">undiscovered</span>
+    {% endif %}
+  </td>
+  <td class="actions">
+    {% if "start" in inst.capabilities and "stop" in inst.capabilities %}
+      {% if inst.running %}
+        <button
+          class="btn-danger btn-sm"
+          hx-post="/instances/{{ inst.id }}/stop"
+          hx-target="#row-{{ inst.id }}"
+          hx-swap="outerHTML"
+        >Stop</button>
+      {% elif inst.instance_type == "local" and not inst.version_ready %}
+        <button class="btn-sm btn-secondary" disabled title="Waiting for Odoo source clone">Cloning…</button>
+      {% elif inst.instance_type == "local" and not inst.env_ready %}
+        <button class="btn-sm btn-secondary" disabled title="Setting up conda environment">Env setup…</button>
+      {% else %}
+        <button
+          class="btn-success btn-sm"
+          hx-post="/instances/{{ inst.id }}/start"
+          hx-target="#row-{{ inst.id }}"
+          hx-swap="outerHTML"
+          hx-on::before-request="this.textContent='Starting…';this.disabled=true"
+        >Start</button>
+      {% endif %}
+    {% endif %}
+    <a href="/instance/{{ inst.id }}" class="btn-sm btn-secondary">Details</a>
+    <button
+      class="btn-danger btn-sm"
+      hx-delete="/instances/{{ inst.id }}"
+      hx-target="#instance-list"
+      hx-swap="innerHTML"
+      hx-confirm="Delete instance {{ inst.id }}?"
+    >Delete</button>
+  </td>
+</tr>

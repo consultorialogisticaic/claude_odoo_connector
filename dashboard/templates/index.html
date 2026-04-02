@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Instances — Odoo Demo Creator{% endblock %}
+
+{% block content %}
+<section class="page-header">
+  <h1>Odoo Instances</h1>
+  <button class="btn-primary" onclick="document.getElementById('new-instance-dialog').showModal()">
+    + New Instance
+  </button>
+</section>
+
+<!-- Instance list -->
+<div id="instance-list">
+  {% include "partials/instance_list.html" %}
+</div>
+
+<!-- New instance dialog -->
+<dialog id="new-instance-dialog">
+  <form
+    hx-post="/instances/create"
+    hx-encoding="multipart/form-data"
+    hx-target="#instance-list"
+    hx-swap="innerHTML"
+    hx-on::after-request="document.getElementById('new-instance-dialog').close()"
+  >
+    <h2>New Instance</h2>
+
+    <label>
+      Client slug
+      <input type="text" name="client" placeholder="acme" required pattern="[a-z0-9\-]+" />
+    </label>
+
+    <label>
+      Odoo version
+      <select name="version" id="version-select" required>
+        <option value="" disabled selected>Loading versions…</option>
+      </select>
+    </label>
+
+    <label>
+      Database name
+      <input type="text" name="db_name" placeholder="acme_demo" required />
+    </label>
+
+    <label>
+      Base
+      <select name="base" id="base-select" onchange="toggleBaseFields()">
+        <option value="fresh">Fresh install</option>
+        <option value="sql">Restore from .sql</option>
+        <option value="zip">Restore from .zip (DB + filestore)</option>
+        <option value="clone">Clone existing</option>
+      </select>
+    </label>
+
+    <div id="base-sql-field" style="display:none">
+      <label>
+        Path to .sql dump
+        <input type="text" name="sql_path" placeholder="/path/to/dump.sql" />
+      </label>
+    </div>
+
+    <div id="base-zip-field" style="display:none">
+      <label>
+        Odoo backup .zip
+        <input type="file" name="zip_upload" accept=".zip" />
+      </label>
+    </div>
+
+    <div id="base-clone-field" style="display:none">
+      <label>
+        Source instance ID
+        <input type="text" name="source_instance" placeholder="acme-17" />
+      </label>
+    </div>
+
+    <div class="dialog-actions">
+      <button type="button" onclick="document.getElementById('new-instance-dialog').close()">Cancel</button>
+      <button type="submit" class="btn-primary">Create</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+function toggleBaseFields() {
+  const val = document.getElementById('base-select').value;
+  document.getElementById('base-sql-field').style.display = val === 'sql' ? 'block' : 'none';
+  document.getElementById('base-zip-field').style.display = val === 'zip' ? 'block' : 'none';
+  document.getElementById('base-clone-field').style.display = val === 'clone' ? 'block' : 'none';
+}
+
+// Populate version dropdown from GitHub branches
+(async function loadVersions() {
+  const select = document.getElementById('version-select');
+  try {
+    const resp = await fetch('/api/odoo-versions');
+    const data = await resp.json();
+    select.innerHTML = '';
+    data.versions.forEach((v, i) => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      if (i === 0) opt.selected = true;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    select.innerHTML = '<option value="" disabled>Failed to load — refresh</option>';
+  }
+})();
+</script>
+{% endblock %}

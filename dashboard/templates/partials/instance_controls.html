@@ -1,0 +1,21 @@
+<div id="instance-controls" {% if start_error %}data-start-error="{{ start_error | e }}"{% endif %}>
+  <span id="status-badge" class="badge badge-{{ inst.status }}">{{ inst.status }}</span>
+
+  {% if inst.running %}
+    <button
+      class="btn-danger"
+      hx-post="/instances/{{ inst.id }}/stop?view=detail"
+      hx-target="#instance-controls"
+      hx-swap="outerHTML"
+    >Stop Instance</button>
+    <a href="http://localhost:{{ inst.port }}" target="_blank" class="btn-primary">Open Odoo</a>
+  {% else %}
+    <button
+      class="btn-success"
+      hx-post="/instances/{{ inst.id }}/start?view=detail"
+      hx-target="#instance-controls"
+      hx-swap="outerHTML"
+      hx-on::before-request="var b=document.getElementById('status-badge');b.textContent='starting';b.className='badge badge-starting'"
+    >Start Instance</button>
+  {% endif %}
+</div>

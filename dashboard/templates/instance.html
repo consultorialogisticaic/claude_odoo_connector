@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}{{ inst.id }} — Odoo Demo Creator{% endblock %}
+
+{% block content %}
+<section class="page-header">
+  <h1>{{ inst.id }}</h1>
+  {% include "partials/instance_controls.html" %}
+</section>
+
+<!-- Version setup banner (shown only when odoo-bin is missing) -->
+<div id="version-setup-banner" style="display:none" class="card card-warning">
+  <h2>Odoo {{ inst.version }} source not found</h2>
+  <p>The Odoo {{ inst.version }} repository hasn't been cloned yet. The instance cannot start until it is ready.</p>
+  <button class="btn-primary" onclick="startClone('{{ inst.version }}')">Clone odoo/odoo@{{ inst.version }}</button>
+  <pre id="clone-log" class="log-output" style="display:none"></pre>
+</div>
+
+<div class="detail-grid">
+  <!-- Info card -->
+  <div class="card">
+    <h2>Info</h2>
+    <dl>
+      <dt>Client</dt><dd>{{ inst.client }}</dd>
+      <dt>Version</dt><dd>{{ inst.version }}</dd>
+      <dt>Database</dt><dd>{{ inst.db }}</dd>
+      <dt>Port</dt><dd>{{ inst.port }}</dd>
+      <dt>Path</dt><dd><code>odoo-workspace/{{ inst.path }}</code></dd>
+      <dt>API Key</dt>
+      <dd id="apikey-cell">
+        {% if inst.api_key_ready %}
+          <span class="badge badge-running">ready</span>
+        {% elif inst.api_key_status == "generating" %}
+          <span class="badge badge-cloning">generating…</span>
+        {% elif inst.api_key_status == "error" %}
+          <span class="badge badge-stopped">failed</span>
+          <button class="btn-sm btn-secondary" onclick="retryApiKey()">Retry</button>
+          <div class="field-hint">{{ inst.api_key_message }}</div>
+        {% else %}
+          <span class="badge badge-stopped">missing</span>
+          {% if inst.running %}
+          <button class="btn-sm btn-secondary" onclick="retryApiKey()">Generate</button>
+          {% endif %}
+        {% endif %}
+      </dd>
+    </dl>
+  </div>
+
+  <!-- Module upload card -->
+  <div class="card">
+    <h2>Upload Module</h2>
+
+    <h3>From GitHub URL</h3>
+    <form hx-post="/instances/{{ inst.id }}/upload-module" hx-swap="none">
+      <label>
+        GitHub repository URL
+        <input type="text" name="github_url" placeholder="https://github.com/org/module" />
+      </label>
+      <button type="submit" class="btn-primary btn-sm">Clone</button>
+    </form>
+
+    <h3>From .zip file</h3>
+    <form
+      hx-post="/instances/{{ inst.id }}/upload-module-zip"
+      hx-encoding="multipart/form-data"
+      hx-swap="none"
+    >
+      <label>
+        Module .zip
+        <input type="file" name="zip_file" accept=".zip" />
+      </label>
+      <button type="submit" class="btn-primary btn-sm">Upload & Install</button>
+    </form>
+  </div>
+</div>
+
+<div class="detail-grid">
+  <!-- Snapshot / Restore card -->
+  <div class="card">
+    <h2>Snapshot &amp; Restore</h2>
+
+    <h3>Create snapshot</h3>
+    <button
+      class="btn-secondary"
+      hx-post="/instances/{{ inst.id }}/snapshot"
+      hx-swap="none"
+      hx-on::after-request="alert('Snapshot saved to data/ folder')"
+    >Snapshot DB</button>
+
+    <h3>Restore from .sql</h3>
+    <form hx-post="/instances/{{ inst.id }}/restore" hx-swap="none"
+          hx-on::after-request="alert('Restore complete')">
+      <label>
+        Path to .sql file
+        <input type="text" name="sql_path"
+               placeholder="odoo-workspace/17.0/acme/data/acme_snapshot.sql" />
+      </label>
+      <button type="submit" class="btn-danger btn-sm">Restore DB</button>
+    </form>
+    <p class="field-hint">Warning: this drops and recreates the database.</p>
+
+    <h3>Restore from .zip (DB + filestore)</h3>
+    <form
+      hx-post="/instances/{{ inst.id }}/restore-zip"
+      hx-encoding="multipart/form-data"
+      hx-swap="none"
+      hx-on::after-request="alert(event.detail.successful ? 'Restore complete' : 'Restore failed — check logs')"
+    >
+      <label>
+        Odoo backup .zip
+        <input type="file" name="zip_file" accept=".zip" />
+      </label>
+      <button type="submit" class="btn-danger btn-sm">Restore ZIP</button>
+    </form>
+    <p class="field-hint">Expects standard Odoo backup format: <code>dump.sql</code> + <code>filestore/</code>. Drops and recreates the database.</p>
+  </div>
+
+  <!-- .env editor card -->
+  <div
+    class="card"
+    hx-get="/instances/{{ inst.id }}/env"
+    hx-trigger="load"
+    hx-target="this"
+    hx-swap="innerHTML"
+  >
+    <p>Loading .env…</p>
+  </div>
+</div>
+
+<!-- Log viewer -->
+<div class="card log-card">
+  <h2>
+    Logs
+    <span id="log-status" class="badge badge-cloning" style="font-size:.7rem">connecting…</span>
+    <button id="log-toggle" class="btn-sm btn-secondary" onclick="toggleLogStream()">Pause</button>
+  </h2>
+  {% if inst.last_error %}
+  <pre class="log-output start-error" style="margin-bottom:.75rem">{{ inst.last_error }}</pre>
+  {% endif %}
+  <pre id="log-output" class="log-output">Loading...</pre>
+</div>
+
+<script>
+  // ── API key status polling ─────────────────────────────────────────────────
+  function retryApiKey() {
+    const cell = document.getElementById('apikey-cell');
+    cell.innerHTML = '<span class="badge badge-cloning">generating…</span>';
+    fetch('/instances/{{ inst.id }}/generate-apikey', {method: 'POST'});
+    pollApiKey();
+  }
+
+  function pollApiKey() {
+    const poll = setInterval(() => {
+      fetch('/instances/{{ inst.id }}/apikey-status')
+        .then(r => r.json())
+        .then(d => {
+          const cell = document.getElementById('apikey-cell');
+          if (d.has_key || d.status === 'ready') {
+            cell.innerHTML = '<span class="badge badge-running">ready</span>';
+            clearInterval(poll);
+          } else if (d.status === 'error') {
+            cell.innerHTML = '<span class="badge badge-stopped">failed</span> ' +
+              '<button class="btn-sm btn-secondary" onclick="retryApiKey()">Retry</button>' +
+              '<div class="field-hint">' + d.message + '</div>';
+            clearInterval(poll);
+          }
+        });
+    }, 3000);
+  }
+
+  // Auto-poll if currently generating
+  {% if inst.api_key_status == "generating" %}
+  pollApiKey();
+  {% endif %}
+
+  // Show clone banner if odoo-bin is missing
+  fetch('/versions/{{ inst.version }}/ready')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ready) {
+        document.getElementById('version-setup-banner').style.display = 'block';
+      }
+    });
+
+  function startClone(version) {
+    const log = document.getElementById('clone-log');
+    log.style.display = 'block';
+    log.textContent = 'Starting clone…\n';
+    fetch(`/versions/${version}/clone`, {method: 'POST'});
+    const src = new EventSource(`/versions/${version}/clone-status`);
+    src.onmessage = e => {
+      log.textContent += e.data + '\n';
+      log.scrollTop = log.scrollHeight;
+      if (e.data.includes('[status] done')) {
+        src.close();
+        document.getElementById('version-setup-banner').innerHTML =
+          '<p style="color:green">Clone complete. You can now start the instance.</p>';
+      } else if (e.data.includes('[status] error')) {
+        src.close();
+      }
+    };
+  }
+
+  // ── Real-time log ──────────────────────────────────────────────────────────
+  const LOG_INSTANCE = '{{ inst.id }}';
+  const logEl = document.getElementById('log-output');
+  const logStatus = document.getElementById('log-status');
+  const logToggle = document.getElementById('log-toggle');
+  let logSrc = null;
+  let logPaused = false;
+  let autoScroll = true;
+
+  // Detect manual scroll-up → disable auto-scroll
+  logEl.addEventListener('scroll', () => {
+    autoScroll = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 20;
+  });
+
+  function appendLine(text) {
+    if (logPaused) return;
+    logEl.textContent += text + '\n';
+    if (autoScroll) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setLogStatus(state) {
+    const labels = { live: 'live', paused: 'paused', reconnecting: 'reconnecting…', idle: 'idle' };
+    const badges = { live: 'badge-running', paused: 'badge-cloning', reconnecting: 'badge-cloning', idle: 'badge-stopped' };
+    logStatus.textContent = labels[state] || state;
+    logStatus.className = `badge ${badges[state] || 'badge-cloning'}`;
+  }
+
+  function openLogStream() {
+    if (logSrc) { logSrc.close(); logSrc = null; }
+    logSrc = new EventSource(`/instances/${LOG_INSTANCE}/logs/stream`);
+    setLogStatus('live');
+
+    logSrc.onmessage = e => appendLine(e.data);
+
+    logSrc.onerror = () => {
+      logSrc.close(); logSrc = null;
+      setLogStatus('reconnecting');
+      setTimeout(openLogStream, 3000);
+    };
+  }
+
+  function toggleLogStream() {
+    logPaused = !logPaused;
+    logToggle.textContent = logPaused ? 'Resume' : 'Pause';
+    setLogStatus(logPaused ? 'paused' : 'live');
+  }
+
+  // Seed with last 200 lines then open live stream
+  fetch(`/instances/${LOG_INSTANCE}/logs?lines=200`)
+    .then(r => r.json())
+    .then(d => {
+      logEl.textContent = d.lines.join('\n') + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+      openLogStream();
+    })
+    .catch(() => { logEl.textContent = '(no log yet)'; openLogStream(); });
+
+  // After HTMX swaps instance-controls: show start errors in log, reconnect stream
+  document.body.addEventListener('htmx:afterSwap', () => {
+    const ctrl = document.getElementById('instance-controls');
+    if (!ctrl) return;
+
+    const err = ctrl.dataset.startError;
+    if (err) {
+      const errBlock = document.createElement('pre');
+      errBlock.className = 'log-output start-error';
+      errBlock.style.marginBottom = '.75rem';
+      errBlock.textContent = err;
+      logEl.parentNode.insertBefore(errBlock, logEl);
+      delete ctrl.dataset.startError;
+    }
+
+    // Reconnect stream immediately after start/stop
+    if (!logSrc || logSrc.readyState === EventSource.CLOSED) {
+      openLogStream();
+    }
+
+    // Start polling API key status after instance start
+    pollApiKey();
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% if instances %}
+<table class="instance-table">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Type</th>
+      <th>Version</th>
+      <th>DB</th>
+      <th>Port</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody id="instance-rows">
+    {% for inst in instances %}
+      {% include "partials/instance_row.html" %}
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+  <p>No instances yet. Create one to get started.</p>
+</div>
+{% endif %}

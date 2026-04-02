@@ -1,0 +1,23 @@
+<h2>.env Configuration{% if saved %} <span class="badge badge-running">Saved</span>{% endif %}</h2>
+<form
+  hx-post="/instances/{{ instance_id }}/env"
+  hx-target="closest .card"
+  hx-swap="innerHTML"
+>
+  {% for key, value in env_data.items() %}
+  <label>
+    {{ key }}
+    {% if "KEY" in key or "PASSWORD" in key or "SECRET" in key %}
+    <input type="password" name="{{ key }}" value="{{ value }}" autocomplete="off" />
+    {% else %}
+    <input type="text" name="{{ key }}" value="{{ value }}" />
+    {% endif %}
+  </label>
+  {% endfor %}
+  {% if not env_data %}
+  <p class="field-hint">.env file is empty or does not exist yet.</p>
+  {% endif %}
+  <div class="dialog-actions">
+    <button type="submit" class="btn-primary btn-sm">Save .env</button>
+  </div>
+</form>

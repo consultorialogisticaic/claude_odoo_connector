@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Odoo Demo Creator{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="/" class="brand">Odoo Demo Creator</a>
+      <span class="nav-links">
+        <a href="/">Instances</a>
+      </span>
+    </nav>
+  </header>
+
+  <!-- Global clone progress panel -->
+  <div id="clone-progress-panel" style="display:none">
+    <div class="clone-panel-header">
+      <strong>Odoo source setup</strong>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <button class="clone-panel-toggle" onclick="toggleClonePanel()" title="Collapse">&#9660;</button>
+        <button class="clone-panel-toggle" onclick="dismissClonePanel()" title="Close">&#10005;</button>
+      </div>
+    </div>
+    <div id="clone-panel-body">
+      <div id="clone-entries"></div>
+    </div>
+  </div>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+  (function initCloneWatcher() {
+    const panel = document.getElementById('clone-progress-panel');
+    const entries = document.getElementById('clone-entries');
+    const activeStreams = {};
+    const dismissed = new Set();
+
+    window.dismissClonePanel = function() {
+      // Close all open SSE streams
+      for (const src of Object.values(activeStreams)) src.close();
+      panel.style.display = 'none';
+      // Mark all current entries as dismissed so poll doesn't reopen them
+      for (const el of entries.querySelectorAll('.clone-entry')) {
+        dismissed.add(el.dataset.version);
+      }
+    };
+
+    function makeEntry(key, label) {
+      const entry = document.createElement('div');
+      entry.id = `clone-entry-${key}`;
+      entry.dataset.key = key;
+      entry.className = 'clone-entry';
+      entry.innerHTML = `
+        <div class="clone-entry-title">
+          <span class="badge badge-cloning" id="clone-badge-${key}">setting up</span>
+          ${label}
+        </div>
+        <div class="clone-progress-bar-wrap">
+          <div class="clone-progress-bar" id="clone-bar-${key}" style="width:0%"></div>
+        </div>
+        <div class="clone-last-line" id="clone-line-${key}">Starting…</div>`;
+      entries.appendChild(entry);
+      return entry;
+    }
+
+    function setDone(key) {
+      const badge = document.getElementById(`clone-badge-${key}`);
+      if (badge) { badge.className = 'badge badge-running'; badge.textContent = 'done'; }
+      const bar = document.getElementById(`clone-bar-${key}`);
+      if (bar) { bar.style.width = '100%'; bar.classList.remove('indeterminate'); }
+      const line = document.getElementById(`clone-line-${key}`);
+      if (line) line.textContent = 'Complete';
+    }
+
+    function setError(key) {
+      const badge = document.getElementById(`clone-badge-${key}`);
+      if (badge) { badge.className = 'badge badge-stopped'; badge.textContent = 'error'; }
+    }
+
+    function openStream(key, id, sseUrl, label) {
+      if (activeStreams[key]) return;
+      if (!document.getElementById(`clone-entry-${key}`)) makeEntry(key, label);
+      panel.style.display = 'block';
+
+      const src = new EventSource(sseUrl);
+      activeStreams[key] = src;
+      let lastPct = 0;
+
+      src.onmessage = e => {
+        const line = e.data;
+        if (!line.startsWith('[status]')) {
+          const lineEl = document.getElementById(`clone-line-${key}`);
+          if (lineEl) lineEl.textContent = line;
+        }
+        if (line.includes('[info] Creating conda env') || line.includes('[info] Installing Odoo')) {
+          const bar = document.getElementById(`clone-bar-${key}`);
+          if (bar) { bar.style.width = '100%'; bar.classList.add('indeterminate'); }
+        }
+        const match = line.match(/(\d+)%/);
+        if (match) {
+          const pct = parseInt(match[1], 10);
+          if (pct > lastPct) {
+            lastPct = pct;
+            const bar = document.getElementById(`clone-bar-${key}`);
+            if (bar && !bar.classList.contains('indeterminate')) bar.style.width = pct + '%';
+          }
+        }
+        if (line.includes('[status] done')) {
+          src.close(); delete activeStreams[key]; setDone(key);
+        } else if (line.includes('[status] error')) {
+          src.close(); delete activeStreams[key]; setError(key);
+        }
+      };
+
+      src.onerror = () => {
+        src.close(); delete activeStreams[key];
+        // Re-check actual state after connection drop
+        fetch(sseUrl.replace('-status', '-ready').replace('clone-status', 'ready'))
+          .then(r => r.json())
+          .then(d => { if (d.ready) setDone(key); })
+          .catch(() => setError(key));
+      };
+    }
+
+    function pollVersions() {
+      fetch('/versions/cloning')
+        .then(r => r.json())
+        .then(data => {
+          for (const [version, info] of Object.entries(data)) {
+            const key = `version:${version}`;
+            if (dismissed.has(key)) continue;
+            if (info.status === 'cloning') {
+              openStream(key, version, `/versions/${version}/clone-status`, `odoo/odoo@${version}`);
+            } else if (info.status === 'error') {
+              if (!document.getElementById(`clone-entry-${key}`)) makeEntry(key, `odoo/odoo@${version}`);
+              setError(key); panel.style.display = 'block';
+            } else if (info.status === 'done') {
+              if (activeStreams[key] || document.getElementById(`clone-entry-${key}`)) setDone(key);
+            }
+          }
+        }).catch(() => {});
+    }
+
+    function pollEnvs() {
+      fetch('/instances/envs/installing')
+        .then(r => r.json())
+        .then(data => {
+          for (const [instanceId, info] of Object.entries(data)) {
+            const key = `env:${instanceId}`;
+            if (dismissed.has(key)) continue;
+            if (info.status === 'installing') {
+              openStream(key, instanceId, `/instances/${instanceId}/env-status`, `env: ${instanceId}`);
+            } else if (info.status === 'error') {
+              if (!document.getElementById(`clone-entry-${key}`)) makeEntry(key, `env: ${instanceId}`);
+              setError(key); panel.style.display = 'block';
+            } else if (info.status === 'done') {
+              if (activeStreams[key] || document.getElementById(`clone-entry-${key}`)) setDone(key);
+            }
+          }
+        }).catch(() => {});
+    }
+
+    pollVersions();
+    pollEnvs();
+    setInterval(pollVersions, 5000);
+    setInterval(pollEnvs, 5000);
+  })();
+
+  function toggleClonePanel() {
+    const body = document.getElementById('clone-panel-body');
+    const btn = document.querySelector('.clone-panel-toggle');
+    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+    btn.innerHTML = body.style.display === 'none' ? '&#9654;' : '&#9660;';
+  }
+  </script>
+</body>
+</html>
