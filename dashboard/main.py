@@ -805,6 +805,15 @@ async def generate_apikey(instance_id: str):
     return {"status": "started", "instance_id": instance_id}
 
 
+@app.get("/instances/{instance_id}/apikey-value")
+async def apikey_value(instance_id: str):
+    """Return the raw API key value for display in the UI."""
+    inst = get_instance(instance_id)
+    env_path = WORKSPACE_ROOT / inst["path"] / ".env"
+    key = _parse_env_file(env_path).get("ODOO_API_KEY", "")
+    return {"key": key}
+
+
 @app.get("/instances/{instance_id}/apikey-status")
 async def apikey_status(instance_id: str):
     """Return current API key generation status."""
