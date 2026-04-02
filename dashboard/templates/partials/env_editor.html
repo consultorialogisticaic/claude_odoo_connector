@@ -8,7 +8,10 @@
   <label>
     {{ key }}
     {% if "KEY" in key or "PASSWORD" in key or "SECRET" in key %}
-    <input type="password" name="{{ key }}" value="{{ value }}" autocomplete="off" />
+    <div class="secret-field">
+      <input type="password" name="{{ key }}" value="{{ value }}" autocomplete="off" />
+      <button type="button" class="btn-sm btn-secondary secret-toggle" onclick="toggleSecret(this)">Show</button>
+    </div>
     {% else %}
     <input type="text" name="{{ key }}" value="{{ value }}" />
     {% endif %}
@@ -21,3 +24,12 @@
     <button type="submit" class="btn-primary btn-sm">Save .env</button>
   </div>
 </form>
+
+<script>
+function toggleSecret(btn) {
+  const input = btn.previousElementSibling;
+  const isHidden = input.type === 'password';
+  input.type = isHidden ? 'text' : 'password';
+  btn.textContent = isHidden ? 'Hide' : 'Show';
+}
+</script>

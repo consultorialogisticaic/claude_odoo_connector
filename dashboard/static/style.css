@@ -683,3 +683,15 @@ details.error-details pre {
 .ll-info          { color: var(--term-info); }
 .ll-debug         { color: var(--term-debug); }
 .ll-default       { color: var(--term-default); }
+
+/* Secret field (password + show/hide toggle) */
+.secret-field {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+  margin-top: .25rem;
+}
+.secret-field input {
+  flex: 1;
+  margin-top: 0;
+}
