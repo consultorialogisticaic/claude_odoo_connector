@@ -11,6 +11,9 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac as hmac_mod
 import json
 import os
 import shutil
@@ -30,7 +33,7 @@ import aiofiles
 import httpx
 import psutil
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -39,7 +42,10 @@ from fastapi.templating import Jinja2Templates
 # ---------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).parent
-WORKSPACE_ROOT = BASE_DIR.parent / "odoo-workspace"
+# ODOO_WORKSPACE_ROOT env var lets consumers (e.g. a parent repo using connector
+# as a submodule) point to their own odoo-workspace. Falls back to cwd/odoo-workspace
+# so `uvicorn connector.dashboard.main:app` run from the project root works naturally.
+WORKSPACE_ROOT = Path(os.environ.get("ODOO_WORKSPACE_ROOT", Path.cwd() / "odoo-workspace"))
 REGISTRY_PATH = WORKSPACE_ROOT / "workspace.json"
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -564,11 +570,16 @@ def _generate_api_key_sync(instance_id: str, inst: dict) -> None:
             _apikey_state[instance_id]["message"] = "Generating API key…"
         _persist_apikey_state(instance_id, inst)
 
-        # Generate API key via odoo-bin shell
+        # Generate API key via odoo-bin shell.
+        # Odoo 19 added a required expiration_date argument to _generate().
+        # Try new signature (False = no expiration) and fall back to old one.
         shell_script = (
             "user = env['res.users'].browse(2)\n"
             "user.password = 'admin'\n"
-            "key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id)\n"
+            "try:\n"
+            "    key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id, False)\n"
+            "except TypeError:\n"
+            "    key = env['res.users.apikeys']._generate('odoo-demo-creator', user.id)\n"
             "print(f'API_KEY={key}')\n"
             "env.cr.commit()\n"
         )
@@ -795,6 +806,15 @@ async def generate_apikey(instance_id: str):
     )
     t.start()
     return {"status": "started", "instance_id": instance_id}
+
+
+@app.get("/instances/{instance_id}/apikey-value")
+async def apikey_value(instance_id: str):
+    """Return the raw API key value for display in the UI."""
+    inst = get_instance(instance_id)
+    env_path = WORKSPACE_ROOT / inst["path"] / ".env"
+    key = _parse_env_file(env_path).get("ODOO_API_KEY", "")
+    return {"key": key}
 
 
 @app.get("/instances/{instance_id}/apikey-status")
@@ -1323,6 +1343,34 @@ async def snapshot(instance_id: str):
     return {"status": "ok", "path": str(dump_path)}
 
 
+@app.get("/instances/{instance_id}/snapshot/download")
+async def snapshot_download(instance_id: str):
+    """Stream a pg_dump of the instance database directly as a file download."""
+    inst = get_instance(instance_id)
+    db = inst["db"]
+    filename = f"{db}_snapshot.sql"
+
+    async def _stream():
+        proc = await asyncio.create_subprocess_exec(
+            "pg_dump", "-F", "p", db,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        assert proc.stdout is not None
+        while True:
+            chunk = await proc.stdout.read(65536)
+            if not chunk:
+                break
+            yield chunk
+        await proc.wait()
+
+    return StreamingResponse(
+        _stream(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/instances/{instance_id}/restore")
 async def restore(instance_id: str, sql_path: str = Form(...)):
     inst = get_instance(instance_id)
@@ -1399,6 +1447,276 @@ async def restore_zip(
             shutil.copytree(extracted_filestore, filestore_dest)
 
     return {"status": "ok", "db": db, "filestore": str(filestore_dest)}
+
+
+# ---------------------------------------------------------------------------
+# Routes — user management (connect-as / change-password)
+# ---------------------------------------------------------------------------
+
+import html as _html
+
+
+def _rpc_execute(inst: dict, model: str, method: str, args: list, kw: dict | None = None):
+    """Call Odoo XML-RPC using the instance API key."""
+    env_path = WORKSPACE_ROOT / inst["path"] / ".env"
+    env_data = _parse_env_file(env_path)
+    api_key = env_data.get("ODOO_API_KEY", "")
+    odoo_user = env_data.get("ODOO_USER", "admin")
+    db = inst["db"]
+    url = inst.get("url") or f"http://localhost:{inst['port']}"
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No API key — generate one first from the instance detail page")
+
+    try:
+        common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common", allow_none=True)
+        uid = common.authenticate(db, odoo_user, api_key, {})
+        if not uid:
+            raise HTTPException(status_code=401, detail="Odoo authentication failed — check API key")
+        models_proxy = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object", allow_none=True)
+        return models_proxy.execute_kw(db, uid, api_key, model, method, args, kw or {})
+    except xmlrpc.client.Fault as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Cannot reach instance: {e}")
+
+
+def _set_password_via_shell(inst: dict, user_id: int, password: str) -> str:
+    """Set a user's password using odoo-bin shell. Returns the user's login."""
+    instance_id = inst["id"]
+    conf_path = WORKSPACE_ROOT / inst["path"] / "odoo.conf"
+    odoo_bin = _odoo_bin_path(inst["version"])
+    conda_python = _instance_env_python(instance_id)
+    db = inst["db"]
+
+    shell_script = (
+        f"user = env['res.users'].browse({int(user_id)})\n"
+        f"login = user.login\n"
+        f"user.write({{'password': {repr(password)}}})\n"
+        f"env.cr.commit()\n"
+        f"print(f'LOGIN={{login}}')\n"
+    )
+
+    result = subprocess.run(
+        [str(conda_python), str(odoo_bin), "shell",
+         "-d", db, "-c", str(conf_path), "--no-http"],
+        input=shell_script,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    login = ""
+    for line in result.stdout.splitlines():
+        if line.startswith("LOGIN="):
+            login = line.split("=", 1)[1].strip()
+
+    if not login and result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr[:500])
+
+    return login or "(unknown)"
+
+
+@app.get("/instances/{instance_id}/users")
+def instance_users(instance_id: str):
+    """Return list of internal users via direct PostgreSQL query."""
+    inst = get_instance(instance_id)
+    db = inst["db"]
+
+    # Query directly — avoids ORM access rules and odoo-bin shell startup time.
+    # res_users.name is a delegated field from res_partner, not a direct column.
+    sql = (
+        "SELECT u.id, p.name, u.login "
+        "FROM res_users u JOIN res_partner p ON p.id = u.partner_id "
+        "WHERE u.share = FALSE AND u.active = TRUE AND u.login NOT IN ('__system__') "
+        "ORDER BY p.name LIMIT 200"
+    )
+    result = subprocess.run(
+        ["psql", "-d", db, "-t", "-A", "-F", "\t", "-c", sql],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr[:300])
+
+    users = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 3:
+            users.append({"id": int(parts[0]), "name": parts[1], "login": parts[2]})
+
+    return {"users": users}
+
+
+@app.get("/instances/{instance_id}/open-as/{user_id}")
+def open_as(instance_id: str, user_id: int, request: Request):
+    """Connect to Odoo as a specific user.
+
+    Approach: generate a fresh session_id, write a minimal session file to disk,
+    compute a valid CSRF token (HMAC-SHA1 of sid[:42]+max_ts keyed by database.secret),
+    then return an HTML page that auto-submits a login form to Odoo.
+
+    Uses 127.0.0.1 instead of localhost for the form target to avoid cookie
+    collisions: browsers may keep separate session_id cookies per port on
+    localhost, so our Set-Cookie wouldn't replace Odoo's existing cookie.
+    Using 127.0.0.1 gives us a clean cookie namespace.
+    """
+    # Redirect to 127.0.0.1 so our Set-Cookie and the form POST target share
+    # the same hostname — avoids cookie conflicts with existing localhost sessions.
+    host = request.headers.get("host", "")
+    if host.startswith("localhost"):
+        dashboard_port = host.split(":")[-1] if ":" in host else "7070"
+        return RedirectResponse(
+            url=f"http://127.0.0.1:{dashboard_port}/instances/{instance_id}/open-as/{user_id}",
+            status_code=303,
+        )
+
+    inst = get_instance(instance_id)
+    if inst.get("type", "local") != "local":
+        raise HTTPException(status_code=400, detail="Only supported for local instances")
+
+    # Set user password to "demo" so the form login succeeds
+    login = _set_password_via_shell(inst, user_id, "demo")
+
+    port = inst["port"]
+    db = inst["db"]
+    odoo_url = f"http://127.0.0.1:{port}"
+
+    # Fetch database.secret — needed to compute the CSRF token
+    sql_secret = "SELECT value FROM ir_config_parameter WHERE key='database.secret'"
+    r = subprocess.run(
+        ["psql", "-d", db, "-t", "-A", "-c", sql_secret],
+        capture_output=True, text=True, timeout=10,
+    )
+    if r.returncode != 0 or not r.stdout.strip():
+        raise HTTPException(status_code=500,
+                            detail=f"Cannot read database.secret: {r.stderr[:200]}")
+    db_secret = r.stdout.strip()
+
+    # Generate a fresh Odoo-compatible session ID:
+    # SHA-512(time + 64 random bytes), drop last byte to avoid b64 padding → 84 chars
+    raw = str(time.time()).encode() + os.urandom(64)
+    sid = base64.urlsafe_b64encode(hashlib.sha512(raw).digest()[:-1]).decode()
+
+    # Write a minimal session file so _get_session_and_dbname loads session.db.
+    # Without this, ensure_db() in web_login redirects (aborting our POST body)
+    # because the session has no db and the form's 'db' param is a "new session" case.
+    sessions_dir = WORKSPACE_ROOT / inst["path"] / "data" / "sessions"
+    sha_dir = sessions_dir / sid[:2]
+    sha_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
+    session_file = sha_dir / sid
+    session_file.write_text(json.dumps({
+        "context": {"lang": "en_US"},
+        "create_time": time.time(),
+        "db": db,
+        "debug": "",
+        "login": None,
+        "uid": None,
+        "session_token": None,
+        "_trace": [],
+    }))
+
+    # Compute a CSRF token valid for this session (1-year expiry salt)
+    # Formula from odoo/http.py:csrf_token():
+    #   hm = HMAC-SHA1(key=db_secret, msg=f'{sid[:42]}{max_ts}'.encode())
+    #   token = f'{hm.hexdigest()}o{max_ts}'
+    max_ts = int(time.time()) + 60 * 60 * 24 * 365
+    csrf_msg = f"{sid[:42]}{max_ts}".encode()
+    csrf_hm = hmac_mod.new(db_secret.encode("ascii"), csrf_msg, hashlib.sha1).hexdigest()
+    csrf_token = f"{csrf_hm}o{max_ts}"
+
+    def esc(s: str) -> str:
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Connecting to Odoo…</title>
+  <style>
+    body {{ font-family: sans-serif; padding: 2rem; color: #555; }}
+  </style>
+</head>
+<body>
+  <p>Connecting as <strong>{esc(login)}</strong>…</p>
+  <form id="f" method="POST" action="{esc(odoo_url)}/web/login">
+    <input type="hidden" name="db"         value="{esc(db)}" />
+    <input type="hidden" name="login"      value="{esc(login)}" />
+    <input type="hidden" name="password"   value="demo" />
+    <input type="hidden" name="csrf_token" value="{esc(csrf_token)}" />
+    <input type="hidden" name="redirect"   value="/odoo" />
+  </form>
+  <script>document.getElementById('f').submit();</script>
+</body>
+</html>"""
+
+    response = HTMLResponse(content=html)
+    # Replace browser's existing session_id for localhost (all ports share the same
+    # cookie jar entry; server-sent Set-Cookie can overwrite an existing HttpOnly cookie).
+    response.set_cookie("session_id", sid, path="/", httponly=True, samesite="lax")
+    return response
+
+
+@app.post("/instances/{instance_id}/change-password")
+def change_password_endpoint(
+    instance_id: str,
+    user_id: int = Form(...),
+    password: str = Form(...),
+):
+    """Change a user's password."""
+    inst = get_instance(instance_id)
+    if inst.get("type", "local") != "local":
+        raise HTTPException(status_code=400, detail="Only supported for local instances")
+    login = _set_password_via_shell(inst, user_id, password)
+    return {"status": "ok", "login": login}
+
+
+# ---------------------------------------------------------------------------
+# Routes — version detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_odoo_version_from_sql(sql_text: str) -> str | None:
+    """
+    Detect Odoo major version from SQL dump content.
+    Looks for module version strings (e.g. '17.0.1.3') near 'base' or 'ir_module'
+    in the first 300 KB of the dump.
+    """
+    known = {"19.0", "18.0", "17.0", "16.0", "15.0", "14.0", "13.0", "12.0"}
+    chunk = sql_text[:300_000]
+    for m in re.finditer(r"(\d+\.\d+)\.\d+\.\d+", chunk):
+        candidate = m.group(1) + ".0"
+        if candidate in known:
+            start = max(0, m.start() - 500)
+            end = min(len(chunk), m.end() + 100)
+            context = chunk[start:end]
+            if "base" in context or "ir_module" in context:
+                return candidate
+    return None
+
+
+@app.post("/api/detect-version")
+async def detect_version(zip_file: UploadFile = File(...)):
+    """Detect Odoo version from a backup ZIP file by scanning dump.sql."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        tmp_zip = tmp_path / (zip_file.filename or "backup.zip")
+        tmp_zip.write_bytes(await zip_file.read())
+
+        try:
+            with zipfile.ZipFile(tmp_zip) as zf:
+                if "dump.sql" not in zf.namelist():
+                    return {"version": None, "error": "No dump.sql found in ZIP"}
+                with zf.open("dump.sql") as f:
+                    sql_chunk = f.read(300_000).decode("utf-8", errors="replace")
+        except zipfile.BadZipFile:
+            return {"version": None, "error": "Invalid ZIP file"}
+
+        version = _detect_odoo_version_from_sql(sql_chunk)
+        return {"version": version}
 
 
 # ---------------------------------------------------------------------------

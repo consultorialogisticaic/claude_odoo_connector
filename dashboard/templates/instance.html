@@ -2,10 +2,11 @@
 {% block title %}{{ inst.id }} — Odoo Demo Creator{% endblock %}
 
 {% block content %}
-<section class="page-header">
-  <h1>{{ inst.id }}</h1>
-  {% include "partials/instance_controls.html" %}
-</section>
+
+<!-- IBM Plex Mono from Google Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <!-- Version setup banner (shown only when odoo-bin is missing) -->
 <div id="version-setup-banner" style="display:none" class="card card-warning">
@@ -15,33 +16,59 @@
   <pre id="clone-log" class="log-output" style="display:none"></pre>
 </div>
 
+<!-- Instance header: full-width control bar -->
+<div class="instance-header">
+  <div class="instance-header-left">
+    <h1>{{ inst.id }}</h1>
+  </div>
+  <div class="instance-header-right">
+    {% include "partials/instance_controls.html" %}
+  </div>
+</div>
+
+<!-- Detail grid row 1: Info + Upload Module -->
 <div class="detail-grid">
+
   <!-- Info card -->
   <div class="card">
     <h2>Info</h2>
-    <dl>
-      <dt>Client</dt><dd>{{ inst.client }}</dd>
-      <dt>Version</dt><dd>{{ inst.version }}</dd>
-      <dt>Database</dt><dd>{{ inst.db }}</dd>
-      <dt>Port</dt><dd>{{ inst.port }}</dd>
-      <dt>Path</dt><dd><code>odoo-workspace/{{ inst.path }}</code></dd>
-      <dt>API Key</dt>
-      <dd id="apikey-cell">
-        {% if inst.api_key_ready %}
-          <span class="badge badge-running">ready</span>
-        {% elif inst.api_key_status == "generating" %}
-          <span class="badge badge-cloning">generating…</span>
-        {% elif inst.api_key_status == "error" %}
-          <span class="badge badge-stopped">failed</span>
-          <button class="btn-sm btn-secondary" onclick="retryApiKey()">Retry</button>
-          <div class="field-hint">{{ inst.api_key_message }}</div>
-        {% else %}
-          <span class="badge badge-stopped">missing</span>
-          {% if inst.running %}
-          <button class="btn-sm btn-secondary" onclick="retryApiKey()">Generate</button>
+    <dl class="info-dl">
+      <div class="info-row">
+        <dt>Client</dt><dd>{{ inst.client }}</dd>
+      </div>
+      <div class="info-row">
+        <dt>Version</dt><dd>{{ inst.version }}</dd>
+      </div>
+      <div class="info-row">
+        <dt>Database</dt><dd>{{ inst.db }}</dd>
+      </div>
+      <div class="info-row">
+        <dt>Port</dt><dd>{{ inst.port }}</dd>
+      </div>
+      <div class="info-row">
+        <dt>Path</dt><dd><code class="mono-path">odoo-workspace/{{ inst.path }}</code></dd>
+      </div>
+      <div class="info-row">
+        <dt>API Key</dt>
+        <dd id="apikey-cell">
+          {% if inst.api_key_ready %}
+            <span class="badge badge-running">ready</span>
+            <button class="btn-sm btn-secondary" onclick="toggleApiKeyReveal(this)" style="margin-left:.4rem">Show</button>
+            <code id="apikey-value" class="mono-path" style="display:none;margin-left:.4rem;font-size:.75rem;word-break:break-all"></code>
+          {% elif inst.api_key_status == "generating" %}
+            <span class="badge badge-cloning">generating…</span>
+          {% elif inst.api_key_status == "error" %}
+            <span class="badge badge-stopped">failed</span>
+            <button class="btn-sm btn-secondary" onclick="retryApiKey()">Retry</button>
+            <div class="field-hint">{{ inst.api_key_message }}</div>
+          {% else %}
+            <span class="badge badge-stopped">missing</span>
+            {% if inst.running %}
+            <button class="btn-sm btn-secondary" onclick="retryApiKey()">Generate</button>
+            {% endif %}
           {% endif %}
-        {% endif %}
-      </dd>
+        </dd>
+      </div>
     </dl>
   </div>
 
@@ -68,23 +95,24 @@
         Module .zip
         <input type="file" name="zip_file" accept=".zip" />
       </label>
-      <button type="submit" class="btn-primary btn-sm">Upload & Install</button>
+      <button type="submit" class="btn-primary btn-sm">Upload &amp; Install</button>
     </form>
   </div>
 </div>
 
+<!-- Detail grid row 2: Snapshot/Restore + .env editor -->
 <div class="detail-grid">
+
   <!-- Snapshot / Restore card -->
   <div class="card">
     <h2>Snapshot &amp; Restore</h2>
 
     <h3>Create snapshot</h3>
-    <button
+    <a
       class="btn-secondary"
-      hx-post="/instances/{{ inst.id }}/snapshot"
-      hx-swap="none"
-      hx-on::after-request="alert('Snapshot saved to data/ folder')"
-    >Snapshot DB</button>
+      href="/instances/{{ inst.id }}/snapshot/download"
+      download
+    >↓ Download Snapshot</a>
 
     <h3>Restore from .sql</h3>
     <form hx-post="/instances/{{ inst.id }}/restore" hx-swap="none"
@@ -114,7 +142,7 @@
     <p class="field-hint">Expects standard Odoo backup format: <code>dump.sql</code> + <code>filestore/</code>. Drops and recreates the database.</p>
   </div>
 
-  <!-- .env editor card -->
+  <!-- .env editor card (loaded via HTMX) -->
   <div
     class="card"
     hx-get="/instances/{{ inst.id }}/env"
@@ -128,19 +156,70 @@
 
 <!-- Log viewer -->
 <div class="card log-card">
-  <h2>
-    Logs
-    <span id="log-status" class="badge badge-cloning" style="font-size:.7rem">connecting…</span>
-    <button id="log-toggle" class="btn-sm btn-secondary" onclick="toggleLogStream()">Pause</button>
-  </h2>
+  <div class="log-card-header">
+    <div class="log-card-title">
+      <h2>Logs</h2>
+      <span id="log-status" class="badge badge-cloning">connecting…</span>
+      <button id="log-toggle" class="btn-sm btn-secondary" onclick="toggleLogStream()">Pause</button>
+    </div>
+    <div class="log-controls">
+      <div class="log-level-filter" role="group" aria-label="Log level filter">
+        <button class="filter-chip active" data-level="ALL" onclick="setLevelFilter(this)">ALL</button>
+        <button class="filter-chip" data-level="ERROR" onclick="setLevelFilter(this)">ERROR</button>
+        <button class="filter-chip" data-level="WARNING" onclick="setLevelFilter(this)">WARNING</button>
+        <button class="filter-chip" data-level="INFO" onclick="setLevelFilter(this)">INFO</button>
+        <button class="filter-chip" data-level="DEBUG" onclick="setLevelFilter(this)">DEBUG</button>
+      </div>
+      <input
+        type="search"
+        id="log-search"
+        class="log-search"
+        placeholder="Search logs…"
+        oninput="applyLogFilter()"
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+  </div>
+
   {% if inst.last_error %}
   <pre class="log-output start-error" style="margin-bottom:.75rem">{{ inst.last_error }}</pre>
   {% endif %}
-  <pre id="log-output" class="log-output">Loading...</pre>
+
+  <div id="log-output" class="log-terminal" role="log" aria-live="polite" aria-label="Log output">Loading...</div>
 </div>
 
 <script>
+  // ── .env secret field toggle (called from env_editor partial) ────────────
+  function toggleSecret(btn) {
+    const input = btn.previousElementSibling;
+    const isHidden = input.type === 'password';
+    input.type = isHidden ? 'text' : 'password';
+    btn.textContent = isHidden ? 'Hide' : 'Show';
+  }
+
   // ── API key status polling ─────────────────────────────────────────────────
+  function toggleApiKeyReveal(btn) {
+    const valueEl = document.getElementById('apikey-value');
+    if (valueEl.style.display === 'none') {
+      if (!valueEl.textContent) {
+        fetch('/instances/{{ inst.id }}/apikey-value')
+          .then(r => r.json())
+          .then(d => {
+            valueEl.textContent = d.key || '(not set)';
+            valueEl.style.display = 'inline';
+            btn.textContent = 'Hide';
+          });
+      } else {
+        valueEl.style.display = 'inline';
+        btn.textContent = 'Hide';
+      }
+    } else {
+      valueEl.style.display = 'none';
+      btn.textContent = 'Show';
+    }
+  }
+
   function retryApiKey() {
     const cell = document.getElementById('apikey-cell');
     cell.innerHTML = '<span class="badge badge-cloning">generating…</span>';
@@ -209,14 +288,64 @@
   let logPaused = false;
   let autoScroll = true;
 
+  // Active filter state
+  let activeLevel = 'ALL';
+  let searchText = '';
+
   // Detect manual scroll-up → disable auto-scroll
   logEl.addEventListener('scroll', () => {
     autoScroll = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 20;
   });
 
+  // Classify a log line to a level key and CSS class
+  function classifyLine(text) {
+    if (/\bERROR\b/.test(text))             return { level: 'ERROR',   cls: 'll-error' };
+    if (/\bWARNING\b|\bWARN\b/.test(text)) return { level: 'WARNING', cls: 'll-warn'  };
+    if (/\bINFO\b/.test(text))             return { level: 'INFO',    cls: 'll-info'  };
+    if (/\bDEBUG\b/.test(text))            return { level: 'DEBUG',   cls: 'll-debug' };
+    return { level: 'OTHER', cls: 'll-default' };
+  }
+
+  // Decide visibility for a span given current filter state
+  function spanVisible(span) {
+    const level  = span.dataset.level;
+    const text   = span.textContent;
+    const levelOk  = activeLevel === 'ALL' || level === activeLevel;
+    const searchOk = searchText === '' || text.toLowerCase().includes(searchText);
+    return levelOk && searchOk;
+  }
+
+  // Apply filter to all existing spans
+  function applyLogFilter() {
+    searchText = document.getElementById('log-search').value.toLowerCase();
+    logEl.querySelectorAll('span.log-line').forEach(span => {
+      span.style.display = spanVisible(span) ? '' : 'none';
+    });
+  }
+
+  // Handle level chip clicks
+  function setLevelFilter(btn) {
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    activeLevel = btn.dataset.level;
+    applyLogFilter();
+  }
+
+  // Append a single log line as a colored, filterable span
   function appendLine(text) {
     if (logPaused) return;
-    logEl.textContent += text + '\n';
+    // Clear placeholder text on first real line
+    if (logEl.dataset.placeholder) {
+      logEl.textContent = '';
+      delete logEl.dataset.placeholder;
+    }
+    const { level, cls } = classifyLine(text);
+    const span = document.createElement('span');
+    span.className = `log-line ${cls}`;
+    span.dataset.level = level;
+    span.textContent = text + '\n';
+    if (!spanVisible(span)) span.style.display = 'none';
+    logEl.appendChild(span);
     if (autoScroll) logEl.scrollTop = logEl.scrollHeight;
   }
 
@@ -251,11 +380,16 @@
   fetch(`/instances/${LOG_INSTANCE}/logs?lines=200`)
     .then(r => r.json())
     .then(d => {
-      logEl.textContent = d.lines.join('\n') + '\n';
+      logEl.textContent = '';
+      d.lines.forEach(line => appendLine(line));
       logEl.scrollTop = logEl.scrollHeight;
       openLogStream();
     })
-    .catch(() => { logEl.textContent = '(no log yet)'; openLogStream(); });
+    .catch(() => {
+      logEl.dataset.placeholder = '1';
+      logEl.textContent = '(no log yet)';
+      openLogStream();
+    });
 
   // After HTMX swaps instance-controls: show start errors in log, reconnect stream
   document.body.addEventListener('htmx:afterSwap', () => {

@@ -14,6 +14,7 @@ RPC tools, instance management, self-discovery, and version-specific knowledge b
 | `/odoo-deploy` | Create instances, restore SQL dumps, multi-version management |
 | `/odoo-source-install` | Install Odoo from source (pip deps, system libs, v14–v19) |
 | `/odoo-version-delta` | Breaking changes between Odoo versions |
+| `/odoo-apikey` | API key management: auto-generation via dashboard, manual fallback steps |
 
 ## Subagents
 
@@ -21,6 +22,8 @@ RPC tools, instance management, self-discovery, and version-specific knowledge b
 - `subagents/functional_expert.md` — functional configuration + module install guidance
 - `subagents/debugger.md` — log parsing, traceback classification, update runner
 - `subagents/discovery_agent.md` — self-discovery: ir.models introspection + OCA enrichment
+- `subagents/app_features_expert.md` — reads manifests + source to produce a Feature Catalog per app
+- `subagents/ui_expert.md` — form view investigation, constraints, demo data patterns per model
 
 ## Tools
 
@@ -50,7 +53,10 @@ python tools/manifest_parser.py --version 18.0 --apps-only
 
 ```bash
 pip install -r requirements.txt
-uvicorn dashboard.main:app --reload --port 7070
+# From the consumer project root (e.g. odoo_demo_creator/):
+uvicorn connector.dashboard.main:app --reload --port 7070
+# Or set workspace path explicitly:
+ODOO_WORKSPACE_ROOT=/path/to/odoo-workspace uvicorn connector.dashboard.main:app --port 7070
 ```
 
 Dashboard at http://localhost:7070. Manages local and remote Odoo instances.
