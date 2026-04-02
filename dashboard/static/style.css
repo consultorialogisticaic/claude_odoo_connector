@@ -179,7 +179,15 @@ dialog {
   border-radius: var(--radius);
   padding: 2rem;
   width: 480px;
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0,0,0,.2);
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
 }
 dialog h2 { margin-bottom: 1.5rem; }
 dialog::backdrop { background: rgba(0,0,0,.4); }
