@@ -45,5 +45,19 @@
   "knowledge.article": ["name"],
   "res.partner": ["name", "is_company"],
   "purchase.order": ["partner_ref"],
-  "purchase.order.line": ["order_id", "product_id"]
+  "purchase.order.line": ["order_id", "product_id"],
+  "crm.lead": ["name", "email_from", "partner_name"],
+  "crm.team": ["name"],
+  "crm.team.member": ["crm_team_id", "user_id"],
+  "crm.stage": ["name", "team_ids"],
+  "crm.tag": ["name"],
+  "crm.lost.reason": ["name"],
+  "crm.recurring.plan": ["name"],
+  "project.project": ["name", "company_id"],
+  "project.task": ["project_id", "name"],
+  "project.task.type": ["name", "user_id", "project_ids"],
+  "project.tags": ["name"],
+  "project.milestone": ["project_id", "name"],
+  "project.collaborator": ["project_id", "partner_id"],
+  "project.update": ["project_id", "date", "name"]
 }
