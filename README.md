@@ -4,7 +4,7 @@ Odoo infrastructure layer for Claude Code agents. Provides slash commands, subag
 
 ## What it gives you
 
-**Slash commands** (in `skills/`):
+**Slash commands** (in `commands/`):
 
 | Command | Purpose |
 |---|---|
