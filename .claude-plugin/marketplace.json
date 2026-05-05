@@ -9,10 +9,7 @@
       "name": "claude-odoo-connector",
       "version": "0.1.0",
       "description": "Odoo infrastructure layer for Claude agents: RPC tools, instance management, self-discovery, and version-specific knowledge bases.",
-      "source": {
-        "source": "github",
-        "repo": "consultorialogisticaic/claude_odoo_connector"
-      }
+      "source": "./"
     }
   ]
 }
