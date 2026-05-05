@@ -1,0 +1,14 @@
+{
+  "name": "claude-odoo-connector",
+  "version": "0.1.0",
+  "description": "Odoo infrastructure layer for Claude agents: RPC tools, instance management, self-discovery, version-specific knowledge bases, and version-delta references for Odoo 14–19.",
+  "author": {
+    "name": "CLIC Consulting"
+  },
+  "homepage": "https://github.com/consultorialogisticaic/claude_odoo_connector",
+  "repository": "https://github.com/consultorialogisticaic/claude_odoo_connector",
+  "license": "MIT",
+  "keywords": ["odoo", "erp", "rpc", "discovery", "deployment"],
+  "commands": "./skills/",
+  "agents": "./subagents/"
+}
