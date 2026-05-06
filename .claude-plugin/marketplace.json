@@ -1,15 +1,21 @@
 {
   "name": "claude-odoo-connector",
   "owner": {
-    "name": "consultorialogisticaic",
-    "url": "https://github.com/consultorialogisticaic"
+    "name": "consultorialogisticaic"
+  },
+  "metadata": {
+    "description": "Odoo infrastructure layer for Claude agents: RPC tools, instance management, self-discovery, and version-specific knowledge bases."
   },
   "plugins": [
     {
       "name": "claude-odoo-connector",
-      "version": "0.1.0",
-      "description": "Odoo infrastructure layer for Claude agents: RPC tools, instance management, self-discovery, and version-specific knowledge bases.",
-      "source": "./"
+      "source": "./plugin",
+      "version": "0.2.0",
+      "description": "Odoo infrastructure layer for Claude agents: RPC tools, instance management, self-discovery, and version-specific knowledge bases for Odoo 14-19.",
+      "author": {
+        "name": "CLIC Consulting"
+      },
+      "category": "development"
     }
   ]
 }

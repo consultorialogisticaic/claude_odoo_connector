@@ -16,10 +16,10 @@ mkdir -p "$COMMANDS_DIR"
 connector_name="$(basename "$CONNECTOR_DIR")"
 
 linked=0
-for cmd in "$CONNECTOR_DIR"/commands/*.md; do
+for cmd in "$CONNECTOR_DIR"/plugin/commands/*.md; do
     name="$(basename "$cmd")"
     # Use a relative path so the symlink works on any machine after cloning
-    rel_path="../../$connector_name/commands/$name"
+    rel_path="../../$connector_name/plugin/commands/$name"
     ln -sf "$rel_path" "$COMMANDS_DIR/$name"
     echo "  linked: $name -> $rel_path"
     linked=$((linked + 1))

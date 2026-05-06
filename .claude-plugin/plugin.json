@@ -1,8 +1,0 @@
-{
-  "name": "claude-odoo-connector",
-  "description": "Odoo infrastructure layer for Claude agents: RPC tools, instance management, self-discovery, version-specific knowledge bases, and version-delta references for Odoo 14–19.",
-  "author": {
-    "name": "CLIC Consulting",
-    "email": "josemonsalve2@gmail.com"
-  }
-}

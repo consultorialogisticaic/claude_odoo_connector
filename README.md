@@ -4,7 +4,7 @@ Odoo infrastructure layer for Claude Code agents. Provides slash commands, subag
 
 ## What it gives you
 
-**Slash commands** (in `commands/`):
+**Slash commands** (in `plugin/commands/`):
 
 | Command | Purpose |
 |---|---|
@@ -17,7 +17,7 @@ Odoo infrastructure layer for Claude Code agents. Provides slash commands, subag
 | `/odoo-version-delta` | Breaking changes between Odoo versions |
 | `/odoo-apikey` | API key management |
 
-**Subagents** (in `subagents/`): `technical_expert`, `functional_expert`, `debugger`, `discovery_agent`, `app_features_expert`, `ui_expert`.
+**Subagents** (in `plugin/subagents/`): `technical_expert`, `functional_expert`, `debugger`, `discovery_agent`, `app_features_expert`, `ui_expert`.
 
 **Python tools** (in `tools/`): XML-RPC client, OCA search, manifest parser, discovery helpers — usable directly or via the slash commands above.
 
